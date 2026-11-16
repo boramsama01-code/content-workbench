@@ -1,5 +1,6 @@
 /** Canva Connect REST boundary. Submit once, persist the returned ID, then poll in durable workers. */
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import type { DB } from "../db";
 import type { CanvaDataset, CanvaField } from "../../shared/canvaEditorial";
 import { canvaProviderErrorCodeSchema, type CanvaFailureReason, type CanvaProviderErrorCode } from "../../shared/canvaCapabilities";
@@ -194,9 +195,57 @@ export async function getCanvaCapabilities(db: DB, options: CanvaRestOptions = {
   if (!parsed.success) throw new CanvaRestError("Canva 기능 확인 응답이 불완전합니다. 계정의 사용 가능 여부를 단정하지 않았으니 연결 상태를 다시 확인해 주세요.", 502, "invalid_response");
   return { capabilities: parsed.data.capabilities };
 }
+type PrincipalCacheEntry = {
+  db: DB; fetchImpl: typeof fetch; tokenSha256: string; expiresAt: number; pending: Promise<CanvaPrincipal>;
+};
+// /users/me permits 10 reads/minute. Share validated identity reads across the
+// browser, background sync and export stages; never cache mutable design data.
+// https://www.canva.dev/docs/apps/rest-apis/reference/users/users-me/
+const PRINCIPAL_TTL_MS = 60_000, PRINCIPAL_CACHE_LIMIT = 8;
+const principalCache: PrincipalCacheEntry[] = [];
+function forgetPrincipal(entry: PrincipalCacheEntry) {
+  const index = principalCache.indexOf(entry);
+  if (index >= 0) principalCache.splice(index, 1);
+}
+const principalCancelled = () => new CanvaRestError("Canva 요청을 취소했습니다.", undefined, "cancelled");
+async function principalResult(entry: PrincipalCacheEntry, signal?: AbortSignal): Promise<CanvaPrincipal> {
+  if (!signal) return { ...await entry.pending };
+  if (signal.aborted) throw principalCancelled();
+  // A caller can stop waiting without aborting the identity read shared with
+  // another export. The underlying GET retains the REST boundary's timeout.
+  return new Promise((resolve, reject) => {
+    const abort = () => { signal.removeEventListener("abort", abort); reject(principalCancelled()); };
+    signal.addEventListener("abort", abort, { once: true });
+    void entry.pending.then(value => {
+      signal.removeEventListener("abort", abort);
+      if (signal.aborted) reject(principalCancelled()); else resolve({ ...value });
+    }, error => { signal.removeEventListener("abort", abort); reject(error); });
+  });
+}
 export async function getCanvaPrincipal(db: DB, options: CanvaRestOptions = {}): Promise<CanvaPrincipal> {
-  const value = validate(z.object({ team_user: ownerSchema }), await rest(db, "/users/me", options));
-  return { userId: value.team_user.user_id, teamId: value.team_user.team_id };
+  if (options.signal?.aborted) throw principalCancelled();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let tokenSha256: string;
+  try { tokenSha256 = createHash("sha256").update(await accessToken(db, fetchImpl)).digest("hex"); }
+  catch { throw new CanvaRestError("Canva 연결 정보를 확인할 수 없습니다. 계정을 다시 연결해 주세요.", 401, "not_connected"); }
+  if (options.signal?.aborted) throw principalCancelled();
+  const now = Date.now();
+  for (let index = principalCache.length - 1; index >= 0; index--) if (principalCache[index].expiresAt <= now) principalCache.splice(index, 1);
+  const cached = principalCache.find(entry => entry.db === db && entry.fetchImpl === fetchImpl && entry.tokenSha256 === tokenSha256);
+  if (cached) {
+    // Refresh recency, not freshness. Frequent checks must still revalidate.
+    forgetPrincipal(cached); principalCache.push(cached);
+    return principalResult(cached, options.signal);
+  }
+  const pending = (async () => {
+    const value = validate(z.object({ team_user: ownerSchema }), await rest(db, "/users/me", { fetchImpl }));
+    return { userId: value.team_user.user_id, teamId: value.team_user.team_id };
+  })();
+  const entry: PrincipalCacheEntry = { db, fetchImpl, tokenSha256, expiresAt: now + PRINCIPAL_TTL_MS, pending };
+  if (principalCache.length >= PRINCIPAL_CACHE_LIMIT) principalCache.shift();
+  principalCache.push(entry);
+  void pending.then(() => { entry.expiresAt = Date.now() + PRINCIPAL_TTL_MS; }, () => forgetPrincipal(entry));
+  return principalResult(entry, options.signal);
 }
 export async function getCanvaDesign(db: DB, id: string, options: CanvaRestOptions = {}): Promise<CanvaDesignMetadata> {
   const value = validate(z.object({ design: z.object({ id: idSchema, title: z.string().max(1000).optional(), owner: ownerSchema, page_count: z.number().int().min(0).max(500).optional(), urls: linksSchema.optional(), updated_at: z.number().int().nonnegative().optional() }) }), await rest(db, `/designs/${validId(id)}`, options));
