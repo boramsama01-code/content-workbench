@@ -135,7 +135,9 @@ it("rejects a source linked while admission waits for its card lock", async () =
     const pending = agent.post(endpoint).set(headers).send(input).then(response => response);
     let waiting = false;
     for (let attempt = 0; attempt < 100; attempt++) {
-      const blocked = await connection.query("SELECT 1 FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%studio_cards%' LIMIT 1");
+      // Read statistics in an autocommit session; PG16 can cache pg_stat_activity
+      // for the duration of the row-lock transaction on `connection`.
+      const blocked = await getPool().query("SELECT 1 FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%studio_cards%' LIMIT 1");
       if (blocked.rowCount) { waiting = true; break; }
       await new Promise(resolve => setTimeout(resolve, 10));
     }

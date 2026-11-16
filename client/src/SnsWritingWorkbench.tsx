@@ -78,7 +78,7 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
   return <details className="sns-writing-workbench" data-editorial-version={SNS_EDITORIAL_VERSION} onToggle={event => { if (event.target === event.currentTarget) setExpanded(event.currentTarget.open); }}>
     <summary><span className="sns-workbench-mark" aria-hidden="true">✦</span><span><strong>글쓰기 작업실</strong><small>내 말투로 기획하고, 첫 문장부터 다듬기</small></span><span className="sns-workbench-count">13가지 작업</span></summary>
     <div className="sns-workbench-body">
-      <div className="sns-workbench-intro"><span className="section-kicker">WRITE WITH YOUR OWN VOICE</span><p>구체적인 장면, 짧은 반전, 읽고 나서 남는 질문. 채널의 말투를 지키며 더 선명하게 씁니다.</p></div>
+      <div className="sns-workbench-intro"><span className="section-kicker">WRITE WITH YOUR OWN VOICE</span><p>구체적인 장면과 생활 속 재치, 궁금증을 풀어주는 설명. 채널의 말투를 지키며 선명하게 씁니다.</p></div>
       {recovery.pending && <div className="notice warn stack" aria-label="글쓰기 작업실 기기 복구본"><strong>이 기기에 남겨 둔 작업실 입력이 있어요.</strong><p className="small">현재 원고는 그대로 두고 작업 요청의 입력만 불러옵니다. 기획 메모 포함은 다시 선택해 주세요.</p><div className="row"><button type="button" className="btn sm" disabled={disabled} onClick={recovery.restore}>작업실 입력 복구</button><button type="button" className="btn sm ghost" disabled={disabled} onClick={recovery.discard}>복구본 버리기</button></div></div>}
       {recovery.status === "saved" && inputsChanged && !recovery.pending && <p className="small muted" role="status">작업실 입력을 이 기기에 임시 보관했습니다. 콘텐츠 원고는 바꾸지 않습니다.</p>}
       {recovery.error && inputsChanged && <p className="notice warn small" role="alert">{recovery.error}</p>}
