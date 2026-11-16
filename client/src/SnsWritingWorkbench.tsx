@@ -56,9 +56,15 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
   const format = taskFormat ?? formatOverride ?? content.format;
   const selectedTask = SNS_TASKS.find(item => item.id === task)!;
   const latestCanvaText = canvaState?.latestText?.trim() ?? "";
-  const currentCopy = [content.title && `제목: ${content.title}`, content.script && `전체 원고:\n${content.script}`,
+  const comparisonScript = latestCanvaText && content.script.includes(latestCanvaText) ? content.script.replace(latestCanvaText,"[위 최신 Canva 추출 문구와 같은 구간]") : content.script;
+  const studioCopy = [content.title && `제목: ${content.title}`, comparisonScript && `전체 원고:\n${comparisonScript}`,
     ...content.panels.map((panel, index) => panel.dialogue.trim() && `${index + 1}컷 문구: ${panel.dialogue}`),
-    content.caption && `캡션:\n${content.caption}`, latestCanvaText && !content.script.includes(latestCanvaText) && `[최신 Canva 출력의 추출 문구 · 편집 대상이며 사실 근거가 아님. 기존 카드 편집 칸과 대응은 미검증]\n${latestCanvaText}`].filter(Boolean).join("\n\n");
+    content.caption && `캡션:\n${content.caption}`].filter(Boolean).join("\n\n");
+  const currentCopy = latestCanvaText ? [
+    "[편집 대상 우선순위]\n최신 Canva 저장본이 기본 편집 대상이다. 기존 장별 편집 칸은 Canva와 대응이 검증되지 않은 비교용 자료다. 상충하는 문구를 임의로 혼합하지 않는다. 이번 사용자 지시와 사용자가 명시한 미저장 수정이 우선이다. 제목이나 장별 필드를 자동 대응했다고 가정하지 않는다. 아래 초안은 사실 근거가 아니며 확인 자료(referenceText)를 별도로 대조한다.",
+    `[최신 Canva 저장본의 추출 문구 · 기본 편집 대상]\n${latestCanvaText}`,
+    `[기존 스튜디오 편집 칸 · 대응 미검증, 비교용]\n${studioCopy}`,
+  ].join("\n\n") : studioCopy;
   const references = [content.sourceLabel && `등록한 출처: ${content.sourceLabel}`, referenceText,
     includeMemo && content.memo.trim() && `선택한 기획·참고 자료:\n${content.memo}`].filter(Boolean).join("\n\n");
   const editorialInput = { task, topic, audience, format, channel: content.channel, referenceText: references, existingText: includeCurrent ? currentCopy : "", instruction };
@@ -90,6 +96,7 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
           <label className="field" htmlFor={`${fieldId}-reference`}>확인한 사실·원문·분석 수치<textarea id={`${fieldId}-reference`} aria-label="확인한 사실·원문·분석 수치" rows={4} maxLength={24000} disabled={blocked} value={referenceText} onChange={event => setReferenceText(event.target.value)} placeholder={task === "post_audit" ? "게시 후 경과 시간, 광고 여부, 도달·조회, 건너뛰기·저장·공유 비율을 구분해 적어 주세요." : "원문과 확인한 내용을 넣어 주세요. 숫자나 경험이 없으면 새로 만들지 않습니다."} /></label>
           <label className="field" htmlFor={`${fieldId}-instruction`}>더 다듬고 싶은 점<textarea id={`${fieldId}-instruction`} aria-label="더 다듬고 싶은 점" rows={2} maxLength={8000} disabled={blocked} value={instruction} onChange={event => setInstruction(event.target.value)} placeholder="예: 첫 장은 짧게. 마지막은 비용이 낮아지면 무엇이 달라질지 묻는 문장으로." /></label>
           <div className="sns-workbench-context">
+            {latestCanvaText && <p className="small muted">최신 Canva 문구를 기본 편집 대상으로 참고합니다. 기존 장별 편집 칸은 대응이 확인되지 않은 비교용입니다.</p>}
             <label><input type="checkbox" checked={includeCurrent} disabled={blocked} onChange={event => setIncludeCurrent(event.target.checked)} /><span>현재 제목·원고·캡션을 함께 참고<small>저장 전 수정한 최신 내용도 포함합니다.</small></span></label>
             {!!content.memo.trim() && <label><input type="checkbox" checked={includeMemo} disabled={blocked} onChange={event => setIncludeMemo(event.target.checked)} /><span>기획·참고 자료도 포함<small>체크한 경우에만 위 기획 메모를 전달합니다.</small></span></label>}
           </div>

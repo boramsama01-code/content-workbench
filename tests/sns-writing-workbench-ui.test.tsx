@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { studioContentSchema, type StudioContent } from "../shared/studio";
 import { SnsWritingWorkbench } from "../client/src/SnsWritingWorkbench";
 import { activateDraftRecoveryScope } from "../client/src/draftRecovery";
+import type { SnsEditorialTarget } from "../client/src/SnsEditorialGeneration";
 
 vi.mock("../client/src/ChatGptLaunch", () => ({ ChatGptLaunch: ({ prompt, disabled }: { prompt: string; disabled: boolean }) =>
   createElement("div", {}, createElement("textarea", { "aria-label": "실제 작업 요청", readOnly: true, value: prompt }), createElement("button", { disabled }, "요청 보내기")) }));
@@ -17,7 +18,7 @@ let host: HTMLDivElement, root: Root, client: QueryClient;
 const initial = (): StudioContent => studioContentSchema.parse({ title: "공중에서 우주선을 잡았다", channel: "highscoop", format: "릴스", script: "확인한 로켓 회수 장면입니다.", caption: "우주선을 공중에서 붙잡았어요. 어떻게 가능했을까요?", sourceLabel: "공식 발사 기록", memo: "공개하지 않은 기획 메모 7311" });
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); client = new QueryClient(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); host.remove(); });
-async function render(content = initial(), disabled = false, recoveryKey?: string) { await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(SnsWritingWorkbench, { content, channelName: "HighScoop", disabled, recoveryKey })))); }
+async function render(content = initial(), disabled = false, recoveryKey?: string, generationTarget?:SnsEditorialTarget) { await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(SnsWritingWorkbench, { content, channelName: "HighScoop", disabled, recoveryKey, generationTarget })))); }
 function field(label: string) {
   const node = [...host.querySelectorAll("label")].find(item => item.textContent?.startsWith(label));
   if (!node) throw new Error(`Missing field: ${label}`);
@@ -31,6 +32,24 @@ async function input(label: string, value: string) {
 function request() { return host.querySelector<HTMLTextAreaElement>('textarea[aria-label="실제 작업 요청"]')!.value; }
 
 describe("SNS writing workbench", () => {
+  it("prioritizes actual latest Canva copy and keeps old fields and explicit unsaved edits separately labeled",async()=>{
+    const latestText="Canva에서 마지막으로 저장한 실제 문구입니다.";
+    client.setQueryData(["canva-studio-sync",18],{latestText});
+    const content={...initial(),title:"기존 편집 칸 표지",script:`사용자가 명시한 미저장 앞문장\n${latestText}\n사용자가 덧붙인 마지막 질문`,caption:"기존 편집 칸 캡션",panels:initial().panels.map((panel,index)=>({...panel,dialogue:`예전 ${index+1}장 편집 문구`}))};
+    await render(content,false,undefined,{id:18,version:7});
+    await input("더 다듬고 싶은 점","지금 추가한 마지막 질문은 그대로 유지해 주세요.");
+    const marker="[입력 데이터]\n", sent=JSON.parse(request().slice(request().lastIndexOf(marker)+marker.length));
+    expect(sent.currentCopy).toContain("최신 Canva 저장본이 기본 편집 대상");
+    expect(sent.currentCopy).toContain("상충하는 문구를 임의로 혼합하지 않는다");
+    expect(sent.currentCopy).toContain("사용자가 명시한 미저장 수정이 우선");
+    expect(sent.currentCopy.indexOf("[최신 Canva 저장본의 추출 문구")).toBeLessThan(sent.currentCopy.indexOf("[기존 스튜디오 편집 칸"));
+    expect(sent.currentCopy).toContain(content.title);expect(sent.currentCopy).toContain(content.caption);
+    expect(sent.currentCopy).toContain("예전 1장 편집 문구");expect(sent.currentCopy).toContain("사용자가 명시한 미저장 앞문장");expect(sent.currentCopy).toContain("사용자가 덧붙인 마지막 질문");
+    expect(sent.currentCopy.split(latestText)).toHaveLength(2);
+    expect(sent.references).toBe(`등록한 출처: ${content.sourceLabel}`);
+    expect(sent.editRequest).toBe("지금 추가한 마지막 질문은 그대로 유지해 주세요.");
+    expect(content.title).toBe("기존 편집 칸 표지");
+  });
   it("prepares a task from the latest current copy while keeping private planning notes opt-in", async () => {
     const content = initial(); await render(content);
     expect(field("무엇을 할까요?").querySelectorAll("option")).toHaveLength(13);
