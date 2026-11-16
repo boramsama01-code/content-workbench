@@ -20,7 +20,7 @@ import type { DB } from "../server/db";
 import type { Channel, ContentItem } from "../shared/schema";
 import { defaultChannelRoleSettings } from "../shared/channelAi";
 import { emptyPayload } from "../shared/payloads";
-import { SNS_EDITORIAL_VERSION } from "../shared/snsEditorial";
+import { SNS_CONTENT_FLOW_RULES, SNS_EDITORIAL_VERSION } from "../shared/snsEditorial";
 import { extractNotice, generateCardCopy, LlmBudget } from "../server/services/llm";
 import { generateNewsCardCopy } from "../server/services/newsEditorial";
 import { familyExecutionPlan, proposeFamilyDialogue, type FamilyGenerateInput } from "../server/services/familyEditorial";
@@ -33,6 +33,7 @@ const response = (data: unknown, name: string) => new Response(JSON.stringify({
   status: "completed", model: "voice-unit", output: [{ type: "function_call", name, arguments: JSON.stringify(data) }],
   usage: { input_tokens: 10, output_tokens: 20 },
 }));
+const requestInstructions = (body: any): string => body.instructions ?? body.system ?? body.systemInstruction?.parts?.map((part: any) => part.text ?? "").join("\n") ?? "";
 const cardCopy = () => ({ version: 1, templateKey: "set:n03-mint", cover: { title: "원문에서 확인한 사건", subtitle: "조건과 이유를 함께 살펴봐요" },
   pages: Array.from({ length: 4 }, (_, i) => ({ id: `body-${i + 1}`, title: `이야기 ${i + 1}`, subtitle: "확인된 조건", body: "확인한 사실을 구체적인 말로 설명해요." })) });
 
@@ -76,6 +77,7 @@ describe("shared editorial voice reaches actual provider requests", () => {
     expect(result.ok).toBe(true); expect(payload).toEqual(before);
     const request = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(request.instructions).toContain(SNS_EDITORIAL_VERSION);
+    expect(request.instructions).toContain(SNS_CONTENT_FLOW_RULES);
     expect(request.instructions).toContain("HighScoop: 중고등학생과 부모");
     expect(request.instructions).toContain("이번 범위는 명시적으로 선택한 필드만");
     expect(request.instructions).not.toContain("HighScoop 제목 지침");
@@ -84,6 +86,7 @@ describe("shared editorial voice reaches actual provider requests", () => {
 
     await extractNotice({ sources: [], sourceHint: null, now: new Date("2026-11-16T00:00:00Z"), budget: new LlmBudget(1), provider: "openai" });
     expect(JSON.parse(fetcher.mock.calls[1][1].body).instructions).not.toContain(SNS_EDITORIAL_VERSION);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).instructions).not.toContain(SNS_CONTENT_FLOW_RULES);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
@@ -94,6 +97,7 @@ describe("shared editorial voice reaches actual provider requests", () => {
     expect(result.data.pages).toHaveLength(7);
     const request = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(request.instructions).toContain(SNS_EDITORIAL_VERSION);
+    expect(request.instructions).toContain(SNS_CONTENT_FLOW_RULES);
     expect(request.instructions).toContain("뉴스: 사실의 의외성");
     expect(request.instructions).toContain("2장은 누가 무엇을 했거나 말했는지");
     expect(Object.keys(result.data)).not.toContain("hookCandidates");
@@ -105,8 +109,18 @@ describe("shared editorial voice reaches actual provider requests", () => {
     const result = await proposeFamilyDialogue(db, f.item, f.channel, f.revision, f.input, f.plan);
     expect(result.copy?.pages).toHaveLength(8); expect(result.reviewFlags).toEqual([]);
     expect(f.revision.payload).toEqual(before);
-    for (const stage of ["article_analysis", "image_brief"] as const) expect(JSON.stringify(mock.calls.find(call => call.stage === stage)?.body)).not.toContain(SNS_EDITORIAL_VERSION);
-    for (const stage of ["editorial_plan", "card_copy", "caption", "editorial_review"] as const) expect(JSON.stringify(mock.calls.find(call => call.stage === stage)?.body)).toContain(SNS_EDITORIAL_VERSION);
+    for (const stage of ["article_analysis", "image_brief"] as const) {
+      const call = mock.calls.find(call => call.stage === stage);
+      expect(call).toBeDefined();
+      expect(requestInstructions(call!.body)).not.toContain(SNS_EDITORIAL_VERSION);
+      expect(requestInstructions(call!.body)).not.toContain(SNS_CONTENT_FLOW_RULES);
+    }
+    for (const stage of ["editorial_plan", "card_copy", "caption", "editorial_review"] as const) {
+      const call = mock.calls.find(call => call.stage === stage);
+      expect(call).toBeDefined();
+      expect(requestInstructions(call!.body)).toContain(SNS_EDITORIAL_VERSION);
+      expect(requestInstructions(call!.body)).toContain(SNS_CONTENT_FLOW_RULES);
+    }
     expect(mock.calls.find(call => call.stage === "caption")?.body.instructions).toContain("이번 범위는 캡션만");
     expect(mock.calls.find(call => call.stage === "editorial_review")?.body.instructions).toContain("이번 범위는 검토와 최소 수정");
   });
@@ -117,6 +131,7 @@ describe("shared editorial voice reaches actual provider requests", () => {
     const result = await proposeFamilyDialogue(db, f.item, f.channel, f.revision, { ...f.input, scope: "field", pageId: "implication", allowedFieldPaths: [path] }, f.plan);
     expect(mock.calls.map(call => call.stage)).toEqual(["partial_copy"]);
     expect(mock.calls[0].body.instructions).toContain(SNS_EDITORIAL_VERSION);
+    expect(mock.calls[0].body.instructions).toContain(SNS_CONTENT_FLOW_RULES);
     expect(mock.calls[0].body.instructions).toContain("이번 범위는 명시적으로 선택한 필드만");
     expect(mock.calls[0].input.allowedFieldPaths).toEqual([path]);
     expect(result.copy?.pages.filter(page => page.id !== "implication")).toEqual((before as any).cardCopy.pages.filter((page: any) => page.id !== "implication"));

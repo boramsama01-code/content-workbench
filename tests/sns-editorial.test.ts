@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SNS_TASKS, SNS_EDITORIAL_VERSION, buildSnsEditorialPrompt, inspectSnsCopy, snsWritingPrompt, type SnsTaskId } from "../shared/snsEditorial";
+import { SNS_TASKS, SNS_EDITORIAL_VERSION, SNS_CONTENT_FLOW_RULES, buildSnsEditorialPrompt, inspectSnsCopy, snsWritingPrompt, type SnsTaskId } from "../shared/snsEditorial";
 import { studioContentSchema } from "../shared/studio";
 import { studioChatGptCaptionPrompt, studioChatGptTextPrompt } from "../shared/studioTextImport";
 import { itemChatGptPrompt } from "../shared/chatgptLink";
@@ -15,6 +15,7 @@ describe("SNS writing requests preserve evidence and separate operations", () =>
       const prompt = request(task.id);
       expect(prompt).toContain(task.outputHint);
       expect(prompt).toContain(SNS_EDITORIAL_VERSION);
+      expect(prompt).toContain(SNS_CONTENT_FLOW_RULES);
       expect(prompt).toContain("이미 채택한 원고");
       expect(prompt).toContain("공식 자료에 회수 완료라고 적혀 있다.");
     }
@@ -72,11 +73,13 @@ describe("SNS writing requests preserve evidence and separate operations", () =>
     const content = studioContentSchema.parse({ title: "확정 제목", channel: "highscoop", memo: "개인 이름과 비공개 메모", script: "확정 본문" });
     for (const prompt of [studioChatGptCaptionPrompt(content, "하이스쿱"), studioChatGptTextPrompt(content, "하이스쿱")]) {
       expect(prompt).toContain(SNS_EDITORIAL_VERSION);
+      expect(prompt).toContain(SNS_CONTENT_FLOW_RULES);
       expect(prompt).toContain("확정 본문");
       expect(prompt).not.toContain(content.memo);
     }
     const sourcePrompt = itemChatGptPrompt({ title: "실제 모집", kind: "notice", channelSlug: "opportunities", source: { title: "원문", url: "https://example.org/notice", text: "정확한 제출물", snippet: "다른 요약", quotes: ["정확한 제출물", "없는 구절"] } });
     expect(sourcePrompt).toContain(SNS_EDITORIAL_VERSION);
+    expect(sourcePrompt).toContain(SNS_CONTENT_FLOW_RULES);
     expect(sourcePrompt).toContain("정확한 제출물");
     expect(sourcePrompt).not.toContain("없는 구절");
   });
