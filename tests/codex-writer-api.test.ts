@@ -4,6 +4,7 @@ import request from "supertest";
 import { and, eq } from "drizzle-orm";
 import { login, resetDb, setTestEnv } from "./helpers";
 import { CODEX_WRITER_JOB_TYPE, CODEX_WRITER_MODEL } from "../shared/codexWriter";
+import { SNS_CONTENT_FLOW_RULES, SNS_EDITORIAL_VERSION } from "../shared/snsEditorial";
 setTestEnv();
 const { createApp } = await import("../server/app");
 const { getDb, getPool, closeDb } = await import("../server/db");
@@ -50,19 +51,25 @@ it("reports a scoped device heartbeat without returning credentials or letting i
   expect(JSON.stringify(status.body)).not.toContain(token);
   expect((await request(app).post("/api/codex-writer/heartbeat").set(worker).send({ deviceName: "PC", model: "untrusted-model" })).status).toBe(400);
 });
-it("seals source text at rest, binds UUID input, and delivers only the canonical server prompt to a worker", async () => {
-  const { agent, headers, endpoint, card } = await setup(), input = body();
+it.each([{ task: "carousel_plan", format: "카드뉴스" }, { task: "reel_script", format: "릴스" }])("seals source text and delivers the canonical shared flow prompt for $task to a worker", async ({ task, format }) => {
+  const { agent, headers, endpoint, card } = await setup(), input = body({ task, format });
   const queued = await agent.post(endpoint).set(headers).send(input);
   expect(queued.status, JSON.stringify(queued.body)).toBe(202); expect(queued.body.status).toBe("queued");
   expect(queued.body.result).toBeNull(); expect(JSON.stringify(queued.body)).not.toContain(input.referenceText);
   const [row] = await getDb().select().from(jobs).where(eq(jobs.id, queued.body.jobId));
   expect(JSON.stringify(row.payload)).not.toContain(input.referenceText); expect(row.payload.sealedPrompt).toBeTruthy();
+  expect(row.payload.promptVersion).toBe(SNS_EDITORIAL_VERSION);
   expect((await agent.post(endpoint).set(headers).send(input)).body.jobId).toBe(row.id);
   expect((await agent.post(endpoint).set(headers).send({ ...input, instruction: "다른 요청" })).status).toBe(409);
   const claimed = await claim();
   expect(claimed.body.job).toMatchObject({ jobId: row.id, cardId: card.id, model: CODEX_WRITER_MODEL, effort: "ultra" });
   expect(claimed.body.job.prompt).toContain(input.referenceText); expect(claimed.body.job.prompt).toContain('"channel": "highscoop"');
   expect(claimed.body.job.prompt).toContain("인형뽑기 클라스");
+  expect(claimed.body.job.prompt).toContain(SNS_EDITORIAL_VERSION);
+  expect(claimed.body.job.prompt).toContain(SNS_CONTENT_FLOW_RULES);
+  expect(claimed.body.job.prompt).toContain(input.existingText);
+  expect(claimed.body.job.prompt).toContain(input.instruction);
+  expect(claimed.body.job.prompt).toContain(`"format": "${format}"`);
   expect((await claim()).body.job).toBeNull();
 });
 it("validates lease, model, output and independent review then stores a proposal without modifying the card", async () => {

@@ -7,6 +7,19 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { preview } from "vite";
 
 const require = createRequire(import.meta.url);
+async function verifyContentFlowPrompt(desk) {
+  const manual = desk.locator("details.sns-workbench-manual");
+  await manual.locator(":scope > summary").click();
+  await manual.getByRole("button", { name: "프롬프트 보기", exact: true }).click();
+  const prompt = await manual.locator("textarea[readonly]").inputValue();
+  assert(prompt.includes(await desk.getAttribute("data-editorial-version")), "manual handoff uses the displayed prompt revision");
+  assert(prompt.includes("카드뉴스·영상의 독자 흐름과 저장·공유 기준"), "the default flow is included without pasting extra instructions");
+  assert(prompt.includes("저장할 이유는 나중에 다시 쓸 수 있는 내용으로 만든다"));
+  assert(prompt.includes("공유할 이유는 누구에게 어떤 상황에서 보여주면 쓸모 있는지"));
+  assert(prompt.includes("최신 사용자 지시와 해당 형식의 계약을 우선한다"));
+  await manual.getByRole("button", { name: "프롬프트 보기", exact: true }).click();
+  await manual.locator(":scope > summary").click();
+}
 let pw;
 try { pw = require("playwright"); }
 catch { pw = require(require.resolve("playwright", { paths: [process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES ?? "/nonexistent"] })); }
@@ -63,13 +76,14 @@ try {
       else if (p.endsWith("/editorial-draft") && method === "POST") {
         const body = req.postDataJSON(); requests.push(body);
         assert(!body.referenceText.includes(card.memo), "private notes remain opt-in");
-        data = { hooks: ["장면", "실용", "의외의 연결"].map((angle, i) => ({ angle, text: `도입 후보 ${i + 1}`, reason: "확인한 장면과 본문을 바로 연결합니다." })), sections: [{ label: "첫 장면", text: "회수 장면을 먼저 보여준 뒤 이유를 설명합니다." }], finalCopy: "다듬은 첫 문장입니다. 확인한 장면부터 시작합니다.", checks: ["회수 주체와 완료 시제를 원문에 대조하세요."], task: body.task, promptVersion: "spacepenguin-editorial-v2-20261116", provider: body.provider, model: "fixture-model", usage: { inputTokens: 0, outputTokens: 0 }, promptTrace: { toolName: "write_sns_editorial_draft", inputSha256: "fixture" }, jobId: 1, cardVersion: 1 };
+        data = { hooks: ["장면", "실용", "의외의 연결"].map((angle, i) => ({ angle, text: `도입 후보 ${i + 1}`, reason: "확인한 장면과 본문을 바로 연결합니다." })), sections: [{ label: "첫 장면", text: "회수 장면을 먼저 보여준 뒤 이유를 설명합니다." }], finalCopy: "다듬은 첫 문장입니다. 확인한 장면부터 시작합니다.", checks: ["회수 주체와 완료 시제를 원문에 대조하세요."], task: body.task, promptVersion: "browser-fixture", provider: body.provider, model: "fixture-model", usage: { inputTokens: 0, outputTokens: 0 }, promptTrace: { toolName: "write_sns_editorial_draft", inputSha256: "fixture" }, jobId: 1, cardVersion: 1 };
       } else { errors.push(`${method} ${p}`); return route.fulfill({ status: 404, json: { error: "Unmocked fixture API" } }); }
       return route.fulfill({ json: data });
     });
     await page.goto(`${origin}/studio/9`);
     const desk = page.locator("details.sns-writing-workbench");
     await desk.locator(":scope > summary").click();
+    await verifyContentFlowPrompt(desk);
     await desk.getByLabel("작성 방식",{exact:true}).selectOption("api");
     await desk.locator('select[id$="-task"]').waitFor({ state: "visible" });
     assert.equal(await desk.locator('select[id$="-task"]').locator("option").count(), 13);
@@ -93,6 +107,7 @@ try {
     await reelPage.goto(`${origin}/studio/20`);
     const reelDesk = reelPage.locator("details.sns-writing-workbench");
     await reelDesk.locator(":scope > summary").click();
+    await verifyContentFlowPrompt(reelDesk);
     await reelDesk.getByLabel("작성 방식",{exact:true}).selectOption("api");
     assert.equal(await reelDesk.locator('select[id$="-task"]').inputValue(), "reel_script");
     await reelDesk.getByRole("button", { name: "스튜디오에서 제안 받기", exact: true }).click();
@@ -113,7 +128,7 @@ try {
     assert(codexRequests.at(-1).existingText.includes("최신 장면의 내레이션"));
     assert.equal(codexRequests.at(-1).provider,undefined,"Codex is not an API-provider selection");
     await codexDesk.screenshot({path:`${output}/codex-${width}.png`});
-    results.push({ width, tasks: 13, generatedHooks: 3, staleApplyBlocked: true, latestVideoNarration: true, codexQueueReviewed:true, externalCalls: 0 });
+    results.push({ width, tasks: 13, sharedDefaultFlowPrompt: true, generatedHooks: 3, staleApplyBlocked: true, latestVideoNarration: true, codexQueueReviewed:true, externalCalls: 0 });
     await context.close();
   }
   assert.deepEqual(errors, []);
