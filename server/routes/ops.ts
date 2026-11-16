@@ -79,7 +79,7 @@ opsRoutes.get(
       .where(and(base, isNotNull(contentItems.discovery), gte(contentItems.createdAt, new Date(Date.now() - 3 * 86400_000))))
       .orderBy(desc(contentItems.createdAt))
       .limit(6);
-    res.json({ counts: { pendingReview, needsEvidence, draftsReady }, next: next ?? null, lastRun: lastRun ?? null, pendingJobs, discovered, discovery: resolveDiscovery(ch.contentType, ch.budget.discovery) });
+    res.json({ counts: { pendingReview, needsEvidence, draftsReady }, next: next ?? null, lastRun: lastRun ?? null, pendingJobs, discovered, discovery: channelDiscoverySettings(ch) });
   }),
 );
 
@@ -181,3 +181,4 @@ opsRoutes.get(
   }),
 );
 
+import { channelDiscoverySettings } from "../../shared/channelContentMode";

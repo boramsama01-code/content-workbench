@@ -18,6 +18,7 @@ import type { AiExecutionPlan } from "../../shared/aiProvenance";
 import { generateFamilySourceDraft } from "../services/familySourceDraft";
 import { readingProfileForTemplateKey } from "../../shared/readingCardProfiles";
 import { createManualSourceBudget } from "../services/manualAiBudget";
+import { contentTemplateForItem } from "../../shared/channelEditorial";
 
 export async function generateDialogueDraft(db: DB, itemId: number, now = new Date(), provider?: AiProvider, templateKey?: string, options: { budget?: LlmBudget; summary?: AiSelection; copy?: AiSelection; familyPlan?: AiExecutionPlan; explicitRetry?: boolean; requestId?: string } = {}) {
   const [item] = await db.select().from(contentItems).where(eq(contentItems.id, itemId));
@@ -26,10 +27,10 @@ export async function generateDialogueDraft(db: DB, itemId: number, now = new Da
     return { ok: false as const, error: "공고 항목은 '구조화 추출'을 사용하세요" };
   const [channel] = await db.select().from(channels).where(eq(channels.id, item.channelId));
   if (!channel) return { ok: false as const, error: "채널을 찾을 수 없습니다." };
-  const selectedTemplate = templateKey ?? channel?.cardTemplate ?? "builtin:classic";
   const summaryAi = options.summary ?? channelAiSelection(channel, "summary", { provider });
   const copyAi = options.copy ?? channelAiSelection(channel, "copy");
   const [previousRevision] = item.currentRevisionId ? await db.select().from(contentRevisions).where(eq(contentRevisions.id, item.currentRevisionId)) : [];
+  const selectedTemplate = contentTemplateForItem(channel, { ...item, cardCopy: previousRevision?.payload.cardCopy }, templateKey);
 
   const docIds = new Set<number>();
   const primary = await itemPrimarySource(db, item);

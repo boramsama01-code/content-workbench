@@ -8,7 +8,7 @@ export const familyManualFactBindingSchema=z.object({
 }).strict();
 const sourceUrl=z.string().url().max(4000).refine(value=>{const url=new URL(value);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password;},'HTTP 원문 주소를 입력해 주세요.');
 export const familyManualCreateSchema=z.object({
-  requestId:z.string().uuid(),title:text(200),copy:familyCardCopySchema,
+  requestId:z.string().uuid(),title:text(200),copy:familyCardCopySchema,subcategory:z.string().trim().max(80).optional(),
   source:z.object({title:text(1000),text:text(100_000),url:sourceUrl.optional()}).strict(),
   factBindings:z.array(familyManualFactBindingSchema).min(2).max(4),confirmed:z.literal(true),
 }).strict().superRefine((body,ctx)=>{

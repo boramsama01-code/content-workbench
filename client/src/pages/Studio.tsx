@@ -1,4 +1,6 @@
 import { WorkspaceSkeleton } from "../WorkspaceSkeleton";
+import { supportsHighscoopNews } from "@shared/channelContentMode";
+import { contentTemplateForItem } from "@shared/channelEditorial";
 import { StudioWorkingPreview } from "../StudioWorkingPreview";
 import { SnsWritingWorkbench } from "../SnsWritingWorkbench";
 import { CanvaStudioSync } from "../CanvaStudioSync";
@@ -174,7 +176,7 @@ function StudioBoard({ onTrash }: { onTrash: () => void }) {
     {capturing && <QuickCapture onClose={() => setCapturing(false)} />}
     {q.data && <StudioNotes data={q.data} />}
     {importingZip && <StudioZipImport channels={visibleChannels} initialChannel={filter !== "all" && visibleKeys.has(filter) ? filter : ""} onClose={() => setImportingZip(false)} />}
-    {creating && <NewCard initialSubcategory={subcategory === "미분류" ? "" : subcategory} channel={entryChannel && visibleKeys.has(entryChannel) ? entryChannel : filter !== "all" && visibleKeys.has(filter) ? filter : ""} stage={newStage} initialMode={newMode} onClose={() => { setCreating(false); if(entry.get("start")) navigate("/",{replace:true}); }} />}
+    {creating && <NewCard initialSubcategory={entry.get("subcategory") ?? (subcategory === "미분류" ? "" : subcategory)} channel={entryChannel && visibleKeys.has(entryChannel) ? entryChannel : filter !== "all" && visibleKeys.has(filter) ? filter : ""} stage={newStage} initialMode={newMode} onClose={() => { setCreating(false); if(entry.get("start")) navigate("/",{replace:true}); }} />}
   </>;
 }
 
@@ -231,8 +233,8 @@ function NewCard({ channel, stage, initialMode, onClose, initialSubcategory = ""
     if (next === "auto" && mode === "finished") { setMode("free"); setRoute("writing"); }
   };
   const createLabel = mode === "experience" ? "사진·영상 올리러 가기 →" : mode === "finished" ? "이미지 가져오기 편집기 열기" : workMode === "auto" ? "자동 제작 편집기 열기" : "직접 작성 편집기 열기";
-  const manualChannel = sourceChannels.find(value => studioKey(value.slug) === ch && value.contentType === "current_dialogue" && value.active);
-  if (manualFamily && manualChannel) return <Dialog title="AI 없이 8장 원고 직접 작성" onClose={() => guard.confirmLeave(onClose)}><ManualFamilyInitializer channelId={manualChannel.id} channelName={manualChannel.name} channelSlug={manualChannel.slug} categories={manualChannel.categories} initialTitle={title} templateKey={manualChannel.cardTemplate} logoAssetId={channels.find(value => value.id === ch)?.profile.logoAssetId} onBack={() => setManualFamily(false)} onSaved={receipt => { onClose(); select(manualChannel.id); navigate(`/studio/${receipt.studioCardId}?mode=manual`); }} /></Dialog>;
+  const manualChannel = sourceChannels.find(value => studioKey(value.slug) === ch && (value.contentType === "current_dialogue" || supportsHighscoopNews(value)) && value.active);
+  if (manualFamily && manualChannel) return <Dialog title="AI 없이 8장 원고 직접 작성" onClose={() => guard.confirmLeave(onClose)}><ManualFamilyInitializer channelId={manualChannel.id} channelName={manualChannel.name} channelSlug={manualChannel.slug} categories={manualChannel.categories} initialTitle={title} templateKey={contentTemplateForItem(manualChannel, {kind:"current_dialogue",subcategory:"뉴스"})} logoAssetId={channels.find(value => value.id === ch)?.profile.logoAssetId} onBack={() => setManualFamily(false)} onSaved={receipt => { onClose(); select(manualChannel.id); navigate(`/studio/${receipt.studioCardId}?mode=manual`); }} /></Dialog>;
   return <Dialog title={mode === "finished" ? "완성 이미지 가져오기" : mode === "experience" ? "사진·영상으로 후기 만들기" : workMode === "auto" ? "새 콘텐츠 자동 제작" : "새 콘텐츠 직접 작성"} onClose={() => !create.isPending && onClose()}>
     <form className="stack studio-create-form" onSubmit={event => { event.preventDefault(); if (route === "source") startFromInbox(); else create.mutate(); }}>
       <div className="creative-start-routes" role="group" aria-label="콘텐츠 시작 방식">{([["writing","pen","아이디어·원고","직접 쓰거나 AI로 구체화"],["source","link","뉴스·자료","링크를 모으고 원문 확인"],["media","video","사진·영상","촬영 자료부터 정리"],["upload","design","완성 이미지","순서·캡션을 확인해 발행"]] as const).map(([key,icon,label,description]) => <button type="button" key={key} aria-pressed={route === key} disabled={create.isPending} onClick={() => { setRoute(key); if (key === "media") setMode("experience"); else if (key === "upload") { setMode("finished"); setWorkMode("manual"); } else setMode("free"); }}><Icon name={icon} size={20}/><strong>{label}</strong><small>{description}</small></button>)}</div>

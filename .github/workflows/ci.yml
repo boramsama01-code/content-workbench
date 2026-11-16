@@ -167,6 +167,9 @@ jobs:
       - name: Verify AI capacity, provider selection and image request estimates
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node --import tsx scripts/ai-capacity-regression.mjs
+      - name: Verify HighScoop news briefing and retired channel navigation
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        run: node --import tsx scripts/highscoop-news-regression.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -181,6 +184,7 @@ jobs:
             test-results/studio-automatic-browser
             test-results/sns-writing
             test-results/ai-capacity-browser
+            test-results/highscoop-news
             test-results/asset-library-browser
             test-results/notion-interior-templates
             test-results/notion-canva-autosave

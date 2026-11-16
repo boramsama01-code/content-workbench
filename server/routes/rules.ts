@@ -15,6 +15,7 @@ import { buildSchoolRuleCandidates, cleanQuery, normalizeQuery, parseBulkQueries
 import { applyExcludeTerms, NaverError } from "../services/naver";
 import { createNewsSearch } from "../services/newsSearch";
 import { normalizeUrl } from "../services/url";
+import { channelCollectionKind, channelDiscoverySettings } from "../../shared/channelContentMode";
 
 export const ruleRoutes = Router();
 
@@ -29,7 +30,7 @@ ruleRoutes.get(
       .where(and(eq(searchRules.channelId, ch.id), deleted ? isNotNull(searchRules.deletedAt) : isNull(searchRules.deletedAt)))
       .orderBy(asc(searchRules.priority), asc(searchRules.id));
     const active = rows.filter((r) => r.enabled && !r.deletedAt);
-    const discovery = resolveDiscovery(ch.contentType, ch.budget.discovery);
+    const discovery = channelDiscoverySettings(ch);
     const discoveryCalls = discovery?.enabled && discovery.picksPerRun > 0 ? discovery.queries.length : 0;
     res.json({
       items: rows,
@@ -268,11 +269,11 @@ ruleRoutes.post(
   ah(async (req, res) => {
     const ch = await loadChannel(req.params.cid);
     const body = parse(
-      z.object({ query: z.string().min(1).max(100), endpoint: z.enum(["news", "blog", "webkr"]), excludeTerms: z.array(z.string()).max(30).optional(), excludeScope: z.enum(["title", "title_and_snippet"]).optional() }),
+      z.object({ query: z.string().min(1).max(100), endpoint: z.enum(["news", "blog", "webkr"]), subcategory: z.string().max(40).nullable().optional(), excludeTerms: z.array(z.string()).max(30).optional(), excludeScope: z.enum(["title", "title_and_snippet"]).optional() }),
       req.body,
     );
     try {
-      const session = createNewsSearch({ recruitment: ch.contentType === "notice" });
+      const session = createNewsSearch({ recruitment: channelCollectionKind(ch, body.subcategory) === "notice" });
       const counter = { naver: 0, rss: 0, limit: 2 };
       const items = await session.search(cleanQuery(body.query), body.endpoint, 5, counter);
       await audit(getDb(), { actor: actorOf(req), action: "trial_search", entity: "channel", entityId: ch.id, channelId: ch.id, detail: { query: body.query, endpoint: body.endpoint, results: items.length } });
@@ -299,6 +300,7 @@ ruleRoutes.post(
     const body = parse(
       z.object({
         categoryHint: z.string().max(40).nullable().optional(),
+        subcategory: z.string().max(40).nullable().optional(),
         items: z
           .array(
             z.object({
@@ -320,6 +322,8 @@ ruleRoutes.post(
       req.body,
     );
     const db = getDb();
+    if (!validSubcategory(ch.slug, body.subcategory, ch.categories)) throw new HttpError(400, "이 채널의 소분류를 선택해 주세요.");
+    const kind = channelCollectionKind(ch, body.subcategory);
     let created = 0, dup = 0;
     for (const it of body.items) {
       const identity = it.endpoint === "news" && it.originallink ? it.originallink : it.link;
@@ -341,7 +345,7 @@ ruleRoutes.post(
       const [doc] = await db.select().from(sourceDocuments).where(and(eq(sourceDocuments.normalizedUrl, normalized), eq(sourceDocuments.isSample, false)));
       const ins = await db
         .insert(contentItems)
-        .values({ channelId: ch.id, kind: ch.contentType, origin: "collected", primarySourceId: doc.id, title: it.title, category: body.categoryHint ?? null, scheduleStatus: ch.contentType === "notice" ? "unknown" : "not_applicable" })
+        .values({ channelId: ch.id, kind, origin: "collected", primarySourceId: doc.id, title: it.title, category: body.categoryHint ?? null, subcategory: body.subcategory ?? null, scheduleStatus: kind === "notice" ? "unknown" : "not_applicable" })
         .onConflictDoNothing()
         .returning({ id: contentItems.id });
       if (ins.length) created++;
@@ -363,7 +367,7 @@ ruleRoutes.put(
   "/channels/:cid/discovery",
   ah(async (req, res) => {
     const ch = await loadChannel(req.params.cid);
-    if (!resolveDiscovery(ch.contentType, null)) throw new HttpError(400, "자동 화제 발굴은 과학·시사 채널에서만 씁니다.");
+    if (!channelDiscoverySettings(ch)) throw new HttpError(400, "이 채널에는 자동 뉴스·이슈 탐색이 없습니다.");
     const b = parse(discoveryBody, req.body);
     const seen = new Set<string>();
     const queries = b.queries.map(cleanQuery).filter((q) => q && !seen.has(normalizeQuery(q)) && seen.add(normalizeQuery(q)));
@@ -375,7 +379,7 @@ ruleRoutes.put(
       .set({ budget: { ...ch.budget, discovery }, version: sql`${channels.version} + 1`, updatedAt: new Date() })
       .where(eq(channels.id, ch.id));
     await audit(db, { actor: actorOf(req), action: "update_discovery", entity: "channel", entityId: ch.id, channelId: ch.id, detail: discovery });
-    res.json({ discovery: resolveDiscovery(ch.contentType, discovery) });
+    res.json({ discovery: channelDiscoverySettings({ ...ch, budget: { ...ch.budget, discovery } }) });
   }),
 );
 

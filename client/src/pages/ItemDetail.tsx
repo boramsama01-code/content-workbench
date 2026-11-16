@@ -1,4 +1,5 @@
 import { AiCapacityPanel } from "../AiCapacityPanel";
+import { contentTemplateForItem } from "@shared/channelEditorial";
 import { sourceImageRequestLimit } from "@shared/aiCapacity";
 import { CanvaEditorial } from "../CanvaEditorial";
 import { CanvaStudioSync } from "../CanvaStudioSync";
@@ -514,7 +515,7 @@ export function EditPanel({ d, cid, templateKey, onTemplateChange, onDirtyChange
   const templates = useTemplates(cid);
   const [localTemplate, setLocalTemplate] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
-  const preferredTemplate = templateKey ?? localTemplate ?? d.current?.payload.cardCopy?.templateKey ?? templates.data?.current ?? "editorial:red";
+  const preferredTemplate = contentTemplateForItem(aiChannel ?? {cardTemplate:templates.data?.current ?? "editorial:red"}, {...d.item,cardCopy:d.current?.payload.cardCopy}, templateKey ?? localTemplate);
   const draftTemplate = !d.current && !templateKey && !localTemplate && !isCurrentEditorialTemplate(preferredTemplate) ? templates.data?.items.find(item=>isCurrentEditorialTemplate(item.key))?.key??"editorial:red" : preferredTemplate;
   const sourceReady = !d.primary || (d.primary.fetchStatus === "ok" && !!d.primary.fetchedText?.trim());
   const generation = useGenerationRequest(cid, d.item.id, "draft");
@@ -789,7 +790,8 @@ function CardApprovePanel({ d, cid, sourceDirty = false, templateChoice, onTempl
   const [confirmed, setConfirmed] = useState(false);
   const tpls = useTemplates(cid);
   const [tpl, setTpl] = useState<string | null>(null);
-  const templateKey = templateChoice ?? tpl ?? d.current?.payload.cardCopy?.templateKey ?? currentCard?.templateKey ?? tpls.data?.current ?? "editorial:red";
+  const {allChannels: templateChannels} = useChannel();
+  const templateKey = contentTemplateForItem(templateChannels.find(channel=>channel.id===cid) ?? {cardTemplate:tpls.data?.current ?? "editorial:red"}, {...d.item,cardCopy:d.current?.payload.cardCopy}, templateChoice ?? tpl ?? currentCard?.templateKey);
   const templateKeyRef = useRef(templateKey); templateKeyRef.current = templateKey;
   const chooseTemplate = (key: string) => { setTpl(key); onTemplateChange?.(key); };
   const typographyOnly = templateKey.startsWith("set:") && !collectionUsesArt(templateKey.slice(4));

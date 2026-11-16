@@ -7,6 +7,7 @@ import { Badge, Empty, ErrorBox, fmtDate, Loading, Modal } from "../ui";
 import { ADMISSION_KEYWORDS, NOTICE_CATEGORIES, SCHOOL_TYPE_LABEL, type DiscoverySettings } from "@shared/domain";
 import { DiscoveryPanel } from "../discovery";
 import type { OfficialSource, SearchRule } from "@shared/schema";
+import { channelCollectionKind, isHighscoopNewsCategory } from "@shared/channelContentMode";
 
 type RulesResp = { items: SearchRule[]; discovery: DiscoverySettings | null; estimate: { activeRules: number; discoveryCalls: number; callsPerRun: number; cappedByBudget: boolean; budget: number } };
 type TrialItem = { endpoint: "news" | "blog" | "webkr"; title: string; description: string; link: string; originallink?: string; bloggername?: string; published: { raw: string | null; iso: string | null; precision: "datetime" | "date" | "unknown" }; excludedReason: string | null };
@@ -27,7 +28,8 @@ export function RulesPage() {
         <div>
           <h1>검색 설정</h1>
           <p className="small muted">
-            {current.contentType === "notice"
+            {isHighscoopNewsCategory(current, "뉴스") ? "모집·입시 자료와 ‘뉴스’의 화제 탐색을 함께 관리합니다. 뉴스 키워드는 소분류를 ‘뉴스’로 지정하세요."
+              : current.contentType === "notice"
               ? "검색어(키워드)와 공식 출처를 따로 관리합니다. 수정·정지는 다음 실행부터 반영됩니다."
               : "이 채널은 자동 화제 발굴로 수집합니다. 검색어는 꼭 챙기고 싶은 주제가 있을 때만 추가하세요."}
           </p>
@@ -47,7 +49,7 @@ export function RulesPage() {
           </button>
         ))}
       </div>
-      {tab === "rules" && <RulesTab key={current.id} cid={current.id} kind={current.contentType} />}
+      {tab === "rules" && <RulesTab key={current.id} cid={current.id} kind={channelCollectionKind(current, "뉴스")} />}
       {tab === "bulk" && <BulkTab key={current.id} cid={current.id} isNotice={current.contentType === "notice"} />}
       {tab === "official" && <OfficialTab key={current.id} cid={current.id} />}
       {tab === "deleted" && <DeletedTab key={current.id} cid={current.id} />}
@@ -63,7 +65,7 @@ function RulesTab({ cid, kind }: { cid: number; kind: string }) {
   const qc = useQueryClient();
   const rules = useRules(cid);
   const [editing, setEditing] = useState<SearchRule | "new" | null>(null);
-  const [trial, setTrial] = useState<{ query: string; endpoint: "news" | "blog" | "webkr"; excludeTerms: string[]; excludeScope: string; categoryHint: string | null } | null>(null);
+  const [trial, setTrial] = useState<{ query: string; endpoint: "news" | "blog" | "webkr"; excludeTerms: string[]; excludeScope: string; categoryHint: string | null; subcategory?: string | null } | null>(null);
   const toggle = useMutation({
     mutationFn: (r: SearchRule) => api(`/channels/${cid}/rules/${r.id}`, { method: "PATCH", body: { version: r.version, enabled: !r.enabled } }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["ch", cid, "rules"] }),
@@ -106,7 +108,7 @@ function RulesTab({ cid, kind }: { cid: number; kind: string }) {
                   {r.categoryHint && <span className="small muted">{r.categoryHint}</span>}
                 </div>
                 <div className="row">
-                  <button className="btn sm" onClick={() => setTrial({ query: r.query, endpoint: r.endpoint as "news" | "blog" | "webkr", excludeTerms: r.excludeTerms, excludeScope: r.excludeScope, categoryHint: r.categoryHint })}>
+                  <button className="btn sm" onClick={() => setTrial({ query: r.query, endpoint: r.endpoint as "news" | "blog" | "webkr", excludeTerms: r.excludeTerms, excludeScope: r.excludeScope, categoryHint: r.categoryHint, subcategory: r.subcategory })}>
                     시험 검색
                   </button>
                   <button className="btn sm" onClick={() => toggle.mutate(r)} disabled={toggle.isPending}>
@@ -263,17 +265,17 @@ export function RuleForm({ cid, rule, onClose, initialSubcategory = "" }: { cid:
   );
 }
 
-function TrialModal({ cid, query, endpoint, excludeTerms, excludeScope, categoryHint, onClose }: { cid: number; query: string; endpoint: "news" | "blog" | "webkr"; excludeTerms: string[]; excludeScope: string; categoryHint: string | null; onClose: () => void }) {
+function TrialModal({ cid, query, endpoint, excludeTerms, excludeScope, categoryHint, subcategory, onClose }: { cid: number; query: string; endpoint: "news" | "blog" | "webkr"; excludeTerms: string[]; excludeScope: string; categoryHint: string | null; subcategory?: string | null; onClose: () => void }) {
   const qc = useQueryClient();
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const run = useQuery({
-    queryKey: ["trial", cid, query, endpoint],
-    queryFn: () => api<{ items: TrialItem[]; warnings?: string[] }>(`/channels/${cid}/trial-search`, { method: "POST", body: { query, endpoint, excludeTerms, excludeScope } }),
+    queryKey: ["trial", cid, query, endpoint, subcategory],
+    queryFn: () => api<{ items: TrialItem[]; warnings?: string[] }>(`/channels/${cid}/trial-search`, { method: "POST", body: { query, endpoint, excludeTerms, excludeScope, subcategory } }),
     staleTime: Infinity,
     retry: false,
   });
   const save = useMutation({
-    mutationFn: () => api<{ created: number; duplicates: number }>(`/channels/${cid}/trial-search/save`, { method: "POST", body: { categoryHint, items: run.data!.items.filter((_, i) => picked.has(i)) } }),
+    mutationFn: () => api<{ created: number; duplicates: number }>(`/channels/${cid}/trial-search/save`, { method: "POST", body: { categoryHint, subcategory, items: run.data!.items.filter((_, i) => picked.has(i)) } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ch", cid] }),
   });
   return (

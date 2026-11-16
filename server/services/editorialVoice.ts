@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { appSettings, channels } from "../../shared/schema";
 import { channelSlug } from "../../shared/channelKeys";
+import { studioChannelRecord } from "./channelRedirects";
 import { buildEditorialVoicePrompt, editorialVoiceProfileSchema, emptyEditorialVoiceProfile,
   type EditorialVoiceProfile, type editorialVoiceFeedbackSchema, type editorialVoiceReplaceSchema } from "../../shared/editorialVoice";
 import type { z } from "zod";
@@ -24,8 +25,7 @@ export async function loadEditorialVoiceSnapshot(db: DB, channelId: number) {
   return { profile, prompt, hash: sha(prompt), revision: profile.profileRevision };
 }
 async function channelFor(db: DB, channelKey: string, lock = false) {
-  const query = db.select().from(channels).where(eq(channels.slug, channelSlug(channelKey)));
-  const [channel] = await (lock ? query.for("update") : query);
+  const channel = await studioChannelRecord(db, channelKey, lock ? "update" : "share");
   if (!channel) throw new HttpError(404, "채널을 찾을 수 없습니다.");
   return channel;
 }

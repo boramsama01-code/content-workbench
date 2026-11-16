@@ -8,6 +8,7 @@ import { noticeIntentSql } from "../services/noticeIntent";
 import { itemSourceIdSql } from "../services/itemSources";
 import { COLLECTION_PROFILES, collectionDateSchema, collectionDayRange, kstDay, nextCollectionAt } from "../../shared/collection";
 import { normalizeQuery, resolveDiscovery } from "../../shared/domain";
+import { channelDiscoverySettings, isHighscoopNewsCategory } from "../../shared/channelContentMode";
 import { ah, conflict, HttpError, loadChannel, parse, zVersion } from "./util";
 import { env } from "../env";
 import { getSetting } from "../seed";
@@ -55,7 +56,7 @@ collectionRoutes.get("/collection/overview", ah(async (req, res) => {
     const categories = [...channelCategories(ch.slug, ch.categories), "미분류"].map(label => ({ label, newItems: categoryRows.filter(r => categoryLabel(r.subcategory) === label).reduce((n, r) => n + r.count, 0) }));
     const [lastRun] = await db.select().from(runs).where(and(eq(runs.channelId, ch.id), eq(runs.kind, "collect"))).orderBy(desc(runs.id)).limit(1);
     const pendingJobs = await db.select({ id: jobs.id, status: jobs.status, createdAt: jobs.createdAt, leaseExpiresAt: jobs.leaseExpiresAt }).from(jobs).where(and(eq(jobs.channelId, ch.id), eq(jobs.type, "collect"), inArray(jobs.status, ["queued", "running"])));
-    const discovery = resolveDiscovery(ch.contentType, ch.budget.discovery);
+    const discovery = channelDiscoverySettings(ch);
     const profile = Object.hasOwn(COLLECTION_PROFILES, ch.slug) ? COLLECTION_PROFILES[ch.slug] : undefined;
     const profileRules = profile ? (["news", "blog"] as const).flatMap(endpoint => profile[endpoint].map(query => {
       const matches = ruleRows.filter(r => r.normalizedQuery === normalizeQuery(query) && r.endpoint === endpoint);
@@ -104,8 +105,8 @@ collectionRoutes.post("/collection/collect", ah(async (req, res) => {
     const [rule] = await db.select({ id: searchRules.id }).from(searchRules).where(and(eq(searchRules.channelId, ch.id), eq(searchRules.enabled, true), isNull(searchRules.deletedAt), subcategory ? eq(searchRules.subcategory, subcategory) : undefined)).limit(1);
     const boardRows = await db.select().from(officialSources).where(and(eq(officialSources.channelId, ch.id), eq(officialSources.enabled, true), sql`${officialSources.adapter} is not null and ${officialSources.verifiedAt} is not null`));
     const board = boardRows.find(o => o.adapter === 'generic_board' && o.domain && o.boardUrl && boardMatchesCategory(ch.slug, o, subcategory, ch.categories));
-    const d = resolveDiscovery(ch.contentType, ch.budget.discovery);
-    if (!rule && !board && !(!subcategory && d?.enabled && d.queries.length && d.picksPerRun > 0)) continue;
+    const d = channelDiscoverySettings(ch);
+    if (!rule && !board && !((!subcategory || isHighscoopNewsCategory(ch, subcategory)) && d?.enabled && d.queries.length && d.picksPerRun > 0)) continue;
     const r = await enqueueJob(db, { type: "collect", channelId: ch.id, dedupeKey: subcategory ? `collect:${ch.id}:category:${subcategory}` : `collect:${ch.id}`, requestedBy: actorOf(req), maxAttempts: 2, payload: { collectionOnly: true, manualWorkload: true, ...(subcategory ? { subcategory } : {}) } });
     // 오래 대기한 요청도 같은 안전한 수집 경로로 재개한다.
     await db.update(jobs).set({ payload: { ...r.job.payload, collectionOnly: true, manualWorkload: true } }).where(and(eq(jobs.id, r.job.id), eq(jobs.status, "queued")));

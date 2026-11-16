@@ -7,9 +7,13 @@ import { DiscoveryPanel } from "../discovery";
 import { Icon } from "../icons";
 import { ErrorBox, GuardedLink } from "../ui";
 import { RuleForm, useRules } from "./Rules";
+import { useChannel } from "../state";
+import { channelCollectionKind } from "@shared/channelContentMode";
 
 /** The inbox edits the same persisted rules used by scheduled collection. */
 export function InboxKeywords({ cid, kind, subcategory = "" }: { cid: number; kind: string; subcategory?: string }) {
+  const { current } = useChannel();
+  const discoveryKind = current ? channelCollectionKind(current, "뉴스") : kind;
   const rules = useRules(cid), qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SearchRule | "new" | null>(null);
@@ -47,7 +51,7 @@ export function InboxKeywords({ cid, kind, subcategory = "" }: { cid: number; ki
       </li>)}</ul>
       {!filtered.length && <p className="muted small">{query ? "일치하는 키워드가 없습니다." : "등록한 키워드가 없습니다."}</p>}
       {filtered.length > limit && <button className="btn sm" onClick={() => setLimit(n => n + 20)}>키워드 더 보기 ({filtered.length - limit}개)</button>}
-      {discovery && (kind === "science_dialogue" || kind === "current_dialogue") && <details className="keyword-discovery"><summary>자동 화제 탐색 주제 {discovery.queries.length}개 관리</summary><DiscoveryPanel key={cid} cid={cid} kind={kind} settings={discovery} /></details>}
+      {discovery && (discoveryKind === "science_dialogue" || discoveryKind === "current_dialogue") && <details className="keyword-discovery"><summary>자동 화제 탐색 주제 {discovery.queries.length}개 관리</summary><DiscoveryPanel key={cid} cid={cid} kind={discoveryKind} settings={discovery} /></details>}
       <GuardedLink className="small" href="/rules">대량 추가·공식 출처·삭제한 키워드 관리 →</GuardedLink>
     </div>
     {removed && <div className="keyword-feedback" role="status"><span>‘{removed.query}’ 키워드를 삭제했습니다.</span><button className="btn sm" disabled={change.isPending} onClick={() => change.mutate({ rule: removed, action: "restore" })}>복원 · 일시정지 상태</button></div>}

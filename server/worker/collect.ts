@@ -50,8 +50,9 @@ import { readingProfileForTemplateKey } from "../../shared/readingCardProfiles";
 import { boardMatchesCategory, officialCategory, officialConfig, officialFirstSearchLimit } from "../services/officialCatalog";
 import { generateFamilySourceDraft } from "../services/familySourceDraft";
 import type { AiExecutionPlan } from "../../shared/aiProvenance";
-import { resolveDiscovery } from "../../shared/domain";
 import { manualBoardWorkload, manualCollectionBudget } from "../services/manualCollectionBudget";
+import { channelCollectionKind, channelDiscoverySettings, isHighscoopNewsCategory } from "../../shared/channelContentMode";
+import { contentTemplateForItem } from "../../shared/channelEditorial";
 
 export type CollectOptions = {
   trigger: "manual" | "worker" | "cli" | "schedule";
@@ -88,6 +89,8 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   const summaryConfigured = !!ai && channelAiAvailability()[ai.summary.provider];
 
   if (!validSubcategory(channel.slug, opts.subcategory, channel.categories)) throw new Error("이 채널의 소분류를 선택해 주세요.");
+  const newsOnly = isHighscoopNewsCategory(channel, opts.subcategory);
+  const discoverySettings = !opts.subcategory || newsOnly ? channelDiscoverySettings(channel) : null;
   const rules = await db
     .select()
     .from(searchRules)
@@ -95,10 +98,10 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
     .orderBy(sql`${searchRules.lastRunAt} asc nulls first`, asc(searchRules.priority), asc(searchRules.id));
 
   const officials = await db.select().from(officialSources).where(eq(officialSources.channelId, channelId)).orderBy(sql`${officialSources.lastCheckedAt} asc nulls first`, asc(officialSources.id));
-  const unconnected = officials.filter((o) => o.enabled && !o.adapter).map((o) => o.name);
-  const boards = officials.filter((o) => o.enabled && o.adapter === "generic_board" && o.verifiedAt && o.domain && o.boardUrl && boardMatchesCategory(channel.slug, o, opts.subcategory, channel.categories));
+  const unconnected = newsOnly ? [] : officials.filter((o) => o.enabled && !o.adapter).map((o) => o.name);
+  const boards = newsOnly ? [] : officials.filter((o) => o.enabled && o.adapter === "generic_board" && o.verifiedAt && o.domain && o.boardUrl && boardMatchesCategory(channel.slug, o, opts.subcategory, channel.categories));
   const manualWorkload = opts.manualWorkload === true && opts.collectionOnly === true && opts.trigger !== 'schedule';
-  const manualPlan = manualWorkload ? manualCollectionBudget(channel.budget, rules, boards.map(officialConfig), opts.subcategory ? null : resolveDiscovery(channel.contentType, channel.budget.discovery)) : null;
+  const manualPlan = manualWorkload ? manualCollectionBudget(channel.budget, rules, boards.map(officialConfig), discoverySettings) : null;
   const budget = manualPlan?.budget ?? channel.budget;
   const plannedNaver = rules.length;
   let selected = rules.slice(0, budget.naverCallsPerRun);
@@ -111,7 +114,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
     subcategory: opts.subcategory ?? null,
     channel: { id: channel.id, slug: channel.slug, budget, cardTemplate: channel.cardTemplate },
     ai,
-    rules: selected.map(r => ({ ...ruleSnapshot(r), searchQuery: channel.contentType === "notice" && r.endpoint === "news" ? noticeSearchQuery(r.query) : r.query })),
+    rules: selected.map(r => ({ ...ruleSnapshot(r), kind: channelCollectionKind(channel, r.subcategory), searchQuery: channelCollectionKind(channel, r.subcategory) === "notice" && r.endpoint === "news" ? noticeSearchQuery(r.query) : r.query })),
     skippedRules: skippedRules.map(ruleSnapshot),
     flags: { dryRun: env.dryRun, autoGenerate: env.autoGenerate },
   };
@@ -131,10 +134,14 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   const errors: Array<{ scope: string; message: string }> = [];
   const counter: CallCounter = { naver: 0, limit: budget.naverCallsPerRun };
   const newItemIds: number[] = [];
-  const publicSearch = createNewsSearch({ now, loadXml: opts.rssLoad, preferNaver: !opts.rssLoad, recruitment: channel.contentType === "notice" });
+  const publicSearch = createNewsSearch({ now, loadXml: opts.rssLoad, preferNaver: !opts.rssLoad, recruitment: channel.contentType === "notice" && !newsOnly });
+  const newsSearch = channel.contentType === "notice" && !newsOnly ? createNewsSearch({ now, loadXml: opts.rssLoad, preferNaver: !opts.rssLoad, recruitment: false }) : publicSearch;
+  const searchSessions = newsSearch === publicSearch ? [publicSearch] : [publicSearch, newsSearch];
+  const rssCalls = () => searchSessions.reduce((sum, session) => sum + session.counts.rssRequests, 0);
   // Existing Naver fixtures exercise the same storage pipeline; production prefers Naver with public RSS fallback.
   const selectedSearch = opts.naverFetch ? ((q: string, e: "news" | "blog" | "webkr", d: number, c: CallCounter) => naverSearch(q, e, d, c, opts.naverFetch)) : publicSearch.search;
   const search: typeof publicSearch.search = (...args) => { currentGenerationSignal()?.throwIfAborted(); return selectedSearch(...args); };
+  const editorialSearch: typeof publicSearch.search = (...args) => { currentGenerationSignal()?.throwIfAborted(); return opts.naverFetch ? naverSearch(args[0], args[1], args[2], args[3], opts.naverFetch) : newsSearch.search(...args); };
   const llmBudget = new LlmBudget(budget.llmCallsPerRun);
   let fetchCalls = 0;
 
@@ -148,7 +155,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   counts.officialDuplicates = 0;
   const boardLimit = manualPlan ? boards.length : Math.min(boards.length, (budget.fetchCallsPerRun ? Math.max(1, Math.floor(budget.fetchCallsPerRun / 2)) : 0));
   const boardCallLimit = manualPlan?.boardCalls ?? Math.max(boardLimit, Math.floor(budget.fetchCallsPerRun / 2));
-  const hasSupplement = budget.naverCallsPerRun > 0 && (rules.length > 0 || (!opts.subcategory && budget.discovery?.enabled));
+  const hasSupplement = budget.naverCallsPerRun > 0 && (rules.length > 0 || discoverySettings?.enabled);
   const officialResultLimit = manualPlan?.boardResults ?? (hasSupplement ? Math.ceil(budget.resultsPerRun * 2 / 3) : budget.resultsPerRun);
   const officialTargets: number[][] = [];
   for (const o of boards) {
@@ -241,7 +248,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   const discoveryCounter = counter;
   const searchLimit = counter.limit;
   if (!manualPlan && rules.length && counts.officialSucceeded > 0) counter.limit = Math.floor(searchLimit / 2);
-  const disc = opts.subcategory || counts.results >= budget.resultsPerRun ? null : await runDiscovery(db, channel, run.id, discoveryCounter, llmBudget, now, search, opts.collectionOnly, budget.resultsPerRun - counts.results);
+  const disc = !discoverySettings || counts.results >= budget.resultsPerRun ? null : await runDiscovery(db, channel, run.id, discoveryCounter, llmBudget, now, editorialSearch, opts.collectionOnly, budget.resultsPerRun - counts.results);
   counter.limit = searchLimit;
   if (disc) {
     Object.assign(counts, disc.counts);
@@ -266,7 +273,8 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
     let ruleNew = 0;
     counts.rulesProcessed++;
     try {
-      items = await search(rule.query, rule.endpoint as "news" | "blog" | "webkr", rule.display, counter);
+      const searchRule = channelCollectionKind(channel, rule.subcategory) === "notice" ? search : editorialSearch;
+      items = await searchRule(rule.query, rule.endpoint as "news" | "blog" | "webkr", rule.display, counter);
       counts.rulesSucceeded++;
     } catch (e) {
       currentGenerationSignal()?.throwIfAborted();
@@ -279,7 +287,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
       currentGenerationSignal()?.throwIfAborted();
       if (counts.results >= budget.resultsPerRun) break;
       counts.results++;
-      if (channel.contentType === "notice") {
+      if (channelCollectionKind(channel, rule.subcategory) === "notice") {
         const intent = classifyNotice(it.title, it.description);
         if (!isYouthOpportunity(it.title) || intent === "retrospective" || intent === "off_topic") {
           counts.noticeReportsSkipped = (counts.noticeReportsSkipped ?? 0) + 1;
@@ -323,7 +331,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
       continue;
     }
     counts.fetchedOk++;
-    if (channel.contentType === "notice" && ["pending", "review_required"].includes(item.reviewStatus)) {
+    if (item.kind === "notice" && ["pending", "review_required"].includes(item.reviewStatus)) {
       const [doc] = await db.select({ text: sourceDocuments.fetchedText }).from(sourceDocuments).where(eq(sourceDocuments.id, item.primarySourceId!));
       const reason = nonYouthAudienceReason(doc?.text ?? "");
       if (reason) {
@@ -350,13 +358,14 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   }
 
   /* 5) 구조화 추출 — 공고 채널 + AI 설정 시 */
-  if (channel.contentType === "notice" && fetchedOk.length) {
+  const noticeItems = channel.contentType === "notice" && fetchedOk.length ? await db.select({ id: contentItems.id }).from(contentItems).where(and(inArray(contentItems.id, fetchedOk), eq(contentItems.kind, "notice"))) : [];
+  if (noticeItems.length) {
     if (!env.autoGenerate || opts.collectionOnly) {
-      counts.extractionSkippedAutoGenerateOff = fetchedOk.length;
+      counts.extractionSkippedAutoGenerateOff = noticeItems.length;
     } else if (!ai || !summaryConfigured) {
       errors.push({ scope: "llm", message: "채널의 기사 요약 AI 미연결 — 구조화 추출 건너뜀(수집함에서 수동 편집 가능)" });
     } else {
-      for (const itemId of fetchedOk) {
+      for (const { id: itemId } of noticeItems) {
         currentGenerationSignal()?.throwIfAborted();
         const r = await extractForItem(db, itemId, llmBudget, now, officials, undefined, channel.cardTemplate, ai);
         if (r.ok) {
@@ -392,7 +401,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
           errors.push({ scope: "llm", message: "AI 호출 한도 도달 — 남은 화제는 초안 없이 저장" });
           break;
         }
-        const r = await generateDialogueDraft(db, itemId, now, undefined, channel.cardTemplate, { budget: llmBudget, ...ai });
+        const r = await generateDialogueDraft(db, itemId, now, undefined, contentTemplateForItem(channel, { kind: channelCollectionKind(channel, "뉴스"), subcategory: "뉴스" }), { budget: llmBudget, ...ai });
         if (r.ok) {
           counts.drafted++;
           if (r.warnings.length) {
@@ -411,8 +420,10 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
   /* 6) 실행 결과 확정 */
   currentGenerationSignal()?.throwIfAborted();
   counts.rulesDeferred = rules.length - counts.rulesProcessed;
-  Object.assign(counts, publicSearch.counts);
-  errors.push(...publicSearch.warnings);
+  for (const session of searchSessions) {
+    for (const [key, value] of Object.entries(session.counts)) counts[key] = (counts[key] ?? 0) + value;
+    errors.push(...session.warnings);
+  }
   const discoveryRan = !!disc && disc.counts.discoveryQueries + disc.errors.length > 0;
   const status = (counts.rulesSucceeded + (disc?.counts.discoveryQueries ?? 0) + counts.officialSucceeded === 0 && (boards.length > 0 || selected.length > 0 || discoveryRan) && errors.length)
     ? "failed"
@@ -427,7 +438,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
       status,
       counts,
       errors,
-      actualCalls: { naver: counter.naver, rss: publicSearch.counts.rssRequests, search: searchCalls(counter), fetch: fetchCalls, llm: llmBudget.used },
+      actualCalls: { naver: counter.naver, rss: rssCalls(), search: searchCalls(counter), fetch: fetchCalls, llm: llmBudget.used },
       llmUsage: { inputTokens: llmBudget.inputTokens, outputTokens: llmBudget.outputTokens, calls: llmBudget.used, usageStatus: llmBudget.usageUnknown ? "usage_unknown" : "known" },
       finishedAt: new Date(),
     })
@@ -452,7 +463,7 @@ export async function runCollect(db: DB, channelId: number, opts: CollectOptions
       : "수집 처리 중 오류가 발생했습니다. 이미 확보한 자료는 보존했습니다. 실행 기록을 확인해 주세요." });
     Object.assign(counts, publicSearch.counts);
     await db.update(runs).set({ status: counts.newItems > 0 ? "partial" : "failed", counts, errors,
-      actualCalls: { naver: counter.naver, rss: publicSearch.counts.rssRequests, search: searchCalls(counter), fetch: fetchCalls, llm: llmBudget.used },
+      actualCalls: { naver: counter.naver, rss: rssCalls(), search: searchCalls(counter), fetch: fetchCalls, llm: llmBudget.used },
       llmUsage: { inputTokens: llmBudget.inputTokens, outputTokens: llmBudget.outputTokens, calls: llmBudget.used, usageStatus: llmBudget.usageUnknown ? "usage_unknown" : "known" }, finishedAt: new Date(),
     }).where(eq(runs.id, run.id));
     throw error;
@@ -464,6 +475,13 @@ function ruleSnapshot(r: SearchRule) {
 }
 
 async function saveSearchItem(db: DB, channel: Channel, rule: SearchRule, runId: number, it: NaverItem) {
+  return db.transaction(async tx => { await assertCollectionOwner(tx as DB, channel.id); return saveSearchItemOwned(tx as DB, channel, rule, runId, it); });
+}
+async function assertCollectionOwner(db: DB, id: number) {
+  const [owner] = await db.select({active: channels.active}).from(channels).where(eq(channels.id,id)).for('share');
+  if (!owner?.active) throw new Error('통합·보관된 채널의 수집을 중단했습니다. 하이스쿱 뉴스에서 다시 수집해 주세요.');
+}
+async function saveSearchItemOwned(db: DB, channel: Channel, rule: SearchRule, runId: number, it: NaverItem) {
   const doc = await upsertNaverDoc(db, it);
   if (!doc) return null;
   const reason = applyExcludeTerms(it, rule.excludeTerms, rule.excludeScope as "title" | "title_and_snippet");
@@ -471,7 +489,7 @@ async function saveSearchItem(db: DB, channel: Channel, rule: SearchRule, runId:
     .insert(contentItems)
     .values({
       channelId: channel.id,
-      kind: channel.contentType,
+      kind: channelCollectionKind(channel, rule.subcategory),
       origin: "collected",
       primarySourceId: doc.id,
       ruleId: rule.id,
@@ -481,7 +499,7 @@ async function saveSearchItem(db: DB, channel: Channel, rule: SearchRule, runId:
       subcategory: rule.subcategory,
       excluded: !!reason,
       excludedReason: reason,
-      scheduleStatus: channel.contentType === "notice" ? "unknown" : "not_applicable",
+      scheduleStatus: channelCollectionKind(channel, rule.subcategory) === "notice" ? "unknown" : "not_applicable",
       evidenceStatus: "needs_review",
     })
     .onConflictDoNothing()
@@ -495,6 +513,9 @@ async function saveSearchItem(db: DB, channel: Channel, rule: SearchRule, runId:
 }
 
 async function saveOfficialEntry(db: DB, channel: Channel, officialId: number, schoolType: string | null, runId: number, e: { url: string; title: string; dateText: string | null }, subcategory: string | null, sourceRole?: string) {
+  return db.transaction(async tx => { await assertCollectionOwner(tx as DB,channel.id); return saveOfficialEntryOwned(tx as DB,channel,officialId,schoolType,runId,e,subcategory,sourceRole); });
+}
+async function saveOfficialEntryOwned(db: DB, channel: Channel, officialId: number, schoolType: string | null, runId: number, e: { url: string; title: string; dateText: string | null }, subcategory: string | null, sourceRole?: string) {
   let normalized: string;
   try {
     normalized = normalizeUrl(e.url);

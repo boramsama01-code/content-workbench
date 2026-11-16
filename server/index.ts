@@ -18,6 +18,7 @@ import { stopSourceGeneration } from "./services/sourceGeneration";
 import { repairLegacyPublicationResults } from "./services/legacyPublicationRepair";
 
 import { consolidateAlligodang } from "./services/channelConsolidation";
+import { consolidateHighscoopNews } from "./services/highscoopNewsConsolidation";
 import { seedIdeaBank } from "./services/ideaBank";
 
 async function main() {
@@ -28,6 +29,7 @@ async function main() {
       if (r.createdChannels.length) console.log(`초기 채널 생성: ${r.createdChannels.join(", ")}`);
       await migrateSitesStarter(getDb());
       await consolidateAlligodang(getDb());
+      await consolidateHighscoopNews(getDb());
       await seedIdeaBank(getDb());
       const workspaces = await backfillSourceWorkspaces(getDb());
       if (workspaces) console.log(`기존 초안 ${workspaces}건을 내 콘텐츠에 연결했습니다.`);

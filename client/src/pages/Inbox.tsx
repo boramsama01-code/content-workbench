@@ -19,6 +19,7 @@ import { InboxKeywords } from "./InboxKeywords";
 import { NOTICE_INTENTS, NOTICE_INTENT_LABEL, type NoticeIntent } from "@shared/noticeIntent";
 import { WorkModeControl, type WorkMode } from "../WorkModeControl";
 import { channelCategories } from "@shared/channelCategories";
+import { channelCollectionKind, isHighscoopNewsCategory } from "@shared/channelContentMode";
 import { useListContext, useListScroll } from "../useListContext";
 import {NOTICE_BUNDLE_LIMIT} from '@shared/noticeBundle';
 import {NoticeBundleBasket,NoticeBundleDialog,useNoticeBasket,type NoticeChoice} from '../NoticeBundle';
@@ -124,13 +125,19 @@ export function InboxPage() {
     if (next !== search && next !== previous.written) { previous.written = next; navigate(`/inbox${next ? "?" + next : ""}`, { replace: true }); }
   }, [context.scope, context.value, context.update, context.rememberEntry, search, today, navigate]);
   const ideas = isIdeaChannel(current) && mode === "ideas";
-  const noticeChannel = current?.contentType === "notice";
+  const newsCategory = !!current && isHighscoopNewsCategory(current, f.subcategory);
+  const mixedHighscoop = !!current && isHighscoopNewsCategory(current, "뉴스");
+  const noticeChannel = !!current && channelCollectionKind(current, f.subcategory) === "notice";
+  const noticeFilterScope = noticeChannel && (!mixedHighscoop || !!f.subcategory);
+  useEffect(() => {
+    if (newsCategory && (f.schedule || f.category || f.noticeIntent !== "all")) context.update(previous => ({ ...previous, f: { ...previous.f, schedule: "", category: "", noticeIntent: "all" }, page: 1 }));
+  }, [newsCategory, f.schedule, f.category, f.noticeIntent, context.update]);
   const noticeBasket=useNoticeBasket(noticeChannel&&typeof selected==='number'?selected:undefined);
   const [bundleOpen,setBundleOpen]=useState(false);
   useEffect(()=>setBundleOpen(false),[selected]);
   const query = useQuery({
     queryKey: ["ch", selected, "items", f, page, ideas],
-    queryFn: () => api<ListResp>(`/items?${qs({ channelId: selected, ...f, fetchStatus: ideas ? undefined : f.fetchStatus || undefined, noticeIntent: noticeChannel ? f.noticeIntent : undefined, collectedOn: ideas ? undefined : f.collectedOn || undefined, origin: ideas ? "idea" : "scrap", page, pageSize: 20 })}`),
+    queryFn: () => api<ListResp>(`/items?${qs({ channelId: selected, ...f, ...(newsCategory ? { schedule: undefined, category: undefined } : {}), fetchStatus: ideas ? undefined : f.fetchStatus || undefined, noticeIntent: noticeFilterScope ? f.noticeIntent : undefined, collectedOn: ideas ? undefined : f.collectedOn || undefined, origin: ideas ? "idea" : "scrap", page, pageSize: 20 })}`),
     placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === selected && previousQuery?.queryKey[5] === ideas ? previous : undefined,
     refetchInterval: 60_000,
   });
@@ -141,18 +148,19 @@ export function InboxPage() {
   };
   const resetFilters = () => { setQInput(""); setFollowToday(false); setF({ q: "", review: "", schedule: "", evidence: "", fetchStatus: "", category: "", subcategory: "", noticeIntent: "all", view: "inbox", collectedOn: "" }); setPage(1); };
   const yesterday = kstDay(new Date(Date.now() - 86400_000));
-  const isNotice = current ? current.contentType === "notice" : true;
+  const isNotice = current ? noticeChannel : true;
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>수집함</h1>
-          <p className="muted small">{current?.contentType === "manual" ? "아이디어를 골라 원고·카드뉴스·웹툰으로 이어가세요." : "자료를 고르고, 원문을 확인한 뒤 콘텐츠로 만드세요."}</p>
+          <h1>{newsCategory ? "최신 뉴스·이슈 브리핑" : "수집함"}</h1>
+          <p className="muted small">{newsCategory ? "뉴스의 원문과 쟁점을 확인하고, 아이의 배움과 연결한 질문·카드뉴스로 이어가세요." : current?.contentType === "manual" ? "아이디어를 골라 원고·카드뉴스·웹툰으로 이어가세요." : "자료를 고르고, 원문을 확인한 뒤 콘텐츠로 만드세요."}</p>
         </div>
-        {current && <GuardedLink className="btn sm" href={`/?start=free&channel=${studioKey(current.slug)}`}>새 콘텐츠 자동 제작</GuardedLink>}
+        {current && <GuardedLink className="btn sm" href={`/?start=free&channel=${studioKey(current.slug)}${newsCategory ? `&subcategory=${encodeURIComponent("뉴스")}` : ""}`}>새 콘텐츠 자동 제작</GuardedLink>}
       </div>
       <WorkModeControl context="collect" mode={workMode} onChange={setWorkMode} />
+      {current && studioKey(current.slug) === "highscoop" && <div className="row" role="group" aria-label="하이스쿱 자료 보기"><button className={`btn sm ${newsCategory ? "primary" : ""}`} aria-pressed={newsCategory} onClick={() => { setMode("scraps"); setF(previous => ({ ...previous, subcategory: "뉴스", noticeIntent: "all", schedule: "", category: "" })); setPage(1); }}>뉴스·이슈 브리핑</button>{newsCategory && <button className="btn sm" onClick={() => set("subcategory", "")}>하이스쿱 전체 자료</button>}</div>}
       {workMode === "auto" && current?.contentType === "manual" && <div className="notice small">이 채널은 직접 제작용입니다. 소재를 선택하거나 <GuardedLink href={`/?start=free&channel=${studioKey(current.slug)}`}>주제로 자동 제작</GuardedLink>을 시작하세요. 자료 자동 수집이 필요하면 <GuardedLink href="/settings">채널 설정</GuardedLink>에서 자료 유형을 지정하세요.</div>}
       {workMode === "auto" && !ideas && current?.contentType !== "manual" && <CollectionPanel date={f.collectedOn || undefined} subcategory={f.subcategory} />}
       {workMode === "manual" && <section className="panel stack" aria-label="수동 자료 작업"><h2>수동으로 이어서 만들기</h2><p className="small muted">자동 수집·생성의 한도나 연결 문제일 때 사용하세요. 아래 자료를 열어 본문을 직접 붙여넣거나, 완성한 이미지를 가져올 수 있습니다.</p><div className="row"><GuardedLink className="btn" href={`/?start=free${current ? `&channel=${studioKey(current.slug)}` : ""}&mode=manual`}>직접 원고 작성</GuardedLink><GuardedLink className="btn" href={`/?start=finished${current ? `&channel=${studioKey(current.slug)}` : ""}&mode=manual`}>완성 이미지 가져오기</GuardedLink></div></section>}
@@ -183,7 +191,7 @@ export function InboxPage() {
               {BODY_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>}
-          {noticeChannel && <label className="field" style={{ flex: "1 1 180px", minWidth: 0 }}>
+          {noticeFilterScope && <label className="field" style={{ flex: "1 1 180px", minWidth: 0 }}>
             공고 성격
             <select aria-label="공고 성격" value={f.noticeIntent} onChange={e => set("noticeIntent", e.target.value)}>
               {[...NOTICE_INTENTS, "all"].map(intent => <option key={intent} value={intent}>{intent === "all" ? "전체 자료" : NOTICE_INTENT_LABEL[intent as NoticeIntent]}</option>)}
@@ -256,7 +264,7 @@ export function InboxPage() {
       {(!ideas || current) && <details className="settings-details inbox-collection-options" style={{ margin: "0 0 16px", minWidth: 0 }}>
         <summary style={{ display: "list-item", listStylePosition: "inside" }}>수집 현황·설정 <span className="small muted" style={{ fontWeight: 400, marginLeft: 8 }}>지금 수집 · 키워드 관리</span></summary>
         <div className="stack" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-          {current && <InboxKeywords key={current.id} cid={current.id} kind={current.contentType} subcategory={f.subcategory} />}
+          {current && <InboxKeywords key={current.id} cid={current.id} kind={channelCollectionKind(current, f.subcategory)} subcategory={f.subcategory} />}
         </div>
       </details>}
 
@@ -270,7 +278,7 @@ export function InboxPage() {
         <ErrorBox error={query.error} retry={() => query.refetch()} />
       ) : !query.data?.items.length ? (
         <Empty>
-          {f.fetchStatus && !ideas ? "선택한 기간에 이 본문 상태의 자료가 없습니다. " : noticeChannel && f.noticeIntent !== "all" ? `선택한 기간에 ‘${NOTICE_INTENT_LABEL[f.noticeIntent as NoticeIntent] ?? "공고"}’ 자료가 없습니다. ‘확인 필요’ 또는 ‘전체 자료’도 확인하세요. ` : f.q || f.review || f.evidence || f.category || f.subcategory || f.schedule ? "조건에 맞는 자료가 없습니다. " : f.collectedOn ? `${f.collectedOn}에 새로 수집된 자료가 없습니다. ` : "조건에 맞는 자료가 없습니다. "}
+          {f.fetchStatus && !ideas ? "선택한 기간에 이 본문 상태의 자료가 없습니다. " : noticeFilterScope && f.noticeIntent !== "all" ? `선택한 기간에 ‘${NOTICE_INTENT_LABEL[f.noticeIntent as NoticeIntent] ?? "공고"}’ 자료가 없습니다. ‘확인 필요’ 또는 ‘전체 자료’도 확인하세요. ` : f.q || f.review || f.evidence || f.category || f.subcategory || f.schedule ? "조건에 맞는 자료가 없습니다. " : f.collectedOn ? `${f.collectedOn}에 새로 수집된 자료가 없습니다. ` : "조건에 맞는 자료가 없습니다. "}
           {f.view === "inbox" && !f.q && !f.review && !f.evidence && !f.fetchStatus ? "수집 현황·설정에서 키워드를 추가하거나, 전체 기간의 자료를 확인해 보세요." : "필터를 바꿔 보세요."}
           <div className="empty-actions"><button className="btn" onClick={resetFilters}>전체 자료 보기</button></div>
         </Empty>

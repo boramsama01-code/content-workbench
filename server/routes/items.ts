@@ -18,6 +18,8 @@ import { assertCardPageArtworkOwnership, loadCardPageArtworkCredits, loadCardPag
 import { zipFiles } from "../services/zip";
 import { studioAiStatus } from "../services/studioAi";
 import { aiProviders } from "../../shared/aiProviders";
+import { channelCollectionKind } from "../../shared/channelContentMode";
+import { contentTemplateForItem } from "../../shared/channelEditorial";
 /**
  * 수집함 · 콘텐츠 초안 · 카드 · 승인
  */
@@ -279,14 +281,16 @@ itemRoutes.post(
   "/channels/:cid/items",
   ah(async (req, res) => {
     const ch = await loadChannel(req.params.cid);
-    const body = parse(z.object({ title: z.string().trim().min(1).max(200), topic: z.string().max(200).optional(), origin: z.enum(["manual", "evergreen"]).optional() }), req.body);
+    const body = parse(z.object({ title: z.string().trim().min(1).max(200), topic: z.string().max(200).optional(), origin: z.enum(["manual", "evergreen"]).optional(), subcategory: z.string().trim().max(80).optional() }), req.body);
+    if (!validSubcategory(ch.slug, body.subcategory, ch.categories)) throw new HttpError(400, "이 채널에 없는 카테고리입니다.");
+    const kind = channelCollectionKind(ch, body.subcategory);
     const db = getDb();
     const item = await db.transaction(async (tx) => {
       const [it] = await tx
         .insert(contentItems)
-        .values({ channelId: ch.id, kind: ch.contentType, origin: body.origin ?? "manual", title: body.title, topicKey: body.topic ?? body.title, relevance: "relevant", scheduleStatus: ch.contentType === "notice" ? "unknown" : "not_applicable" })
+        .values({ channelId: ch.id, kind, origin: body.origin ?? "manual", title: body.title, topicKey: body.topic ?? body.title, subcategory: body.subcategory || null, relevance: "relevant", scheduleStatus: kind === "notice" ? "unknown" : "not_applicable" })
         .returning();
-      await createRevision(tx, { contentItemId: it.id, author: "operator", payload: emptyPayload(ch.contentType, body.title), note: "직접 작성 시작" });
+      await createRevision(tx, { contentItemId: it.id, author: "operator", payload: emptyPayload(kind, body.title), note: "직접 작성 시작" });
       await tx.update(contentItems).set({ version: sql`${contentItems.version} + 1` }).where(eq(contentItems.id, it.id));
       await audit(tx, { actor: actorOf(req), action: "create", entity: "content_item", entityId: it.id, channelId: ch.id, detail: { title: body.title } });
       return it;
@@ -543,7 +547,7 @@ itemRoutes.post(
     const result = await runSourceGeneration(db, { type: "source_generate", itemId: item.id, channelId: ch.id, version: version ?? item.version, requestId: logicalRequestId, intent: { provider: provider ?? null, templateKey: templateKey ?? null }, configuration: ai, actor: actorOf(req) }, async () => {
       if (item.kind === "notice") {
         const [saved] = item.currentRevisionId ? await db.select({ payload: contentRevisions.payload }).from(contentRevisions).where(eq(contentRevisions.id, item.currentRevisionId)) : [];
-        const selectedTemplate = templateKey ?? ch.cardTemplate;
+        const selectedTemplate = contentTemplateForItem(ch, { ...item, cardCopy: saved?.payload.cardCopy }, templateKey);
         const budget = createManualSourceBudget({ summary: ai.summary, copy: ai.copy, notice: true, hasSavedCopy: !!saved?.payload.cardCopy, templateKey: selectedTemplate,
           ...(readingProfileForTemplateKey(selectedTemplate) ? { familyPlan: ai.familyPlan } : {}) });
         const r = await extractForItem(db, item.id, budget, new Date(), undefined, provider, templateKey, ai);
@@ -612,7 +616,7 @@ itemRoutes.get("/channels/:cid/items/:id/card-copy", ah(async (req, res) => {
   }
   const saved = cardCopySchema.safeParse(revision.payload.cardCopy);
   if (query.templateKey) assertLegacyTemplate(query.templateKey);
-  let key = query.templateKey || (saved.success ? saved.data.templateKey : null) || ch.cardTemplate || "builtin:classic";
+  let key = contentTemplateForItem(ch, { ...item, cardCopy: saved.success ? saved.data : undefined }, query.templateKey);
   let style, templateRecovery: string | undefined;
   if (readingProfileForTemplateKey(key)) {
     key = "builtin:classic";

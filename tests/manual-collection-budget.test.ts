@@ -44,14 +44,15 @@ function database(officials: any[] = []) {
   const rules = ['selected-one', 'selected-two'].map((query, index) => ({ id: index + 1, query, endpoint: 'news', display: 1, excludeTerms: [], excludeScope: 'title' }));
   function builder(action: string, table?: any) {
     let name = table ? getTableName(table) : '';
-    const q: any = { from(t: any) { name = getTableName(t); return q; }, where() { return q; }, orderBy() { return q; }, innerJoin() { return q; },
+    const q: any = { from(t: any) { name = getTableName(t); return q; }, where() { return q; }, for() { return q; }, orderBy() { return q; }, innerJoin() { return q; },
       values(v: any) { if (name === 'runs') state.snapshot = v.snapshot; return q; }, onConflictDoNothing() { return q; },
       set(v: any) { if (name === 'runs') state.report = v; return q; },
       returning() { return Promise.resolve([{ id: name === 'content_items' ? ++state.nextItem : 1 }]); },
       then(resolve: any, reject: any) { return Promise.resolve(action !== 'select' ? [] : name === 'channels' ? [channel] : name === 'search_rules' ? rules : name === 'official_sources' ? officials : name === 'content_items' ? [{ id: 101, primarySourceId: 1 }] : name === 'source_documents' ? [{ id: 1, normalizedUrl: 'https://source.example/article', originalUrl: 'https://source.example/article', fetchStatus: 'not_fetched', meta: {} }] : []).then(resolve, reject); },
     }; return q;
   }
-  return { select: () => builder('select'), insert: (t: any) => builder('insert', t), update: (t: any) => builder('update', t) } as any;
+  const db: any = { select: () => builder('select'), insert: (t: any) => builder('insert', t), update: (t: any) => builder('update', t), transaction: (work: (tx: any) => unknown) => work(db) };
+  return db;
 }
 it('actually searches and fetches both selected rules from zero budgets, serially, without an AI or notification path', async () => {
   const { runCollect } = await import('../server/worker/collect');
