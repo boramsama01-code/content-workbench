@@ -67,6 +67,13 @@ export function buildCaptions(args: { kind: string; payload: Any; sourceUrl: str
   telegram: string;
 } {
   const p = args.payload;
+  const bundle=noticeBundleFromPayload(p);
+  if(bundle){
+    const sources=bundle.rows.map(row=>({name:noticeBundleRowFields(row).organization==='미확인'?row.title:noticeBundleRowFields(row).organization,url:row.url}));
+    const sections:CaptionSection[]=[{text:p.title,emoji:'📚'},{text:`선택한 ${bundle.rows.length}개 모집 공고의 대상·지원 조건·일정을 기관별로 정리했습니다.`},{text:'학생 접수와 교사·학교 추천 일정은 해당 기관의 안내를 각각 확인해 주세요.'}];
+    return {instagram:composeReadableCaption([...sections,{text:`출처: ${[...new Set(sources.map(source=>source.name))].join(' · ')}`,emoji:'🔗'}],String(p.title??'')),
+      telegram:composeReadableCaption([...sections,{text:['기관별 원문',...sources.map(source=>[source.name,source.url].filter(Boolean).join('\n'))].join('\n\n'),emoji:'🔗'}],String(p.title??''))};
+  }
   const topic = [p.title, p.topic, p.category, p.key_question].filter(Boolean).join(" ");
   let sections: CaptionSection[];
   if (args.kind === "science_dialogue") {
@@ -113,3 +120,4 @@ export function validateCaptions(c: { instagram: string; telegram: string }): st
 }
 
 
+import {noticeBundleFromPayload,noticeBundleRowFields} from '../../shared/noticeBundle';

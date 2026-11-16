@@ -156,7 +156,7 @@ export const sourceDocuments = pgTable(
     fetchError: text("fetch_error"),
     fetchedText: text("fetched_text"),
     contentHash: text("content_hash"),
-    attachments: jsonb("attachments").$type<Array<{ url: string; name: string; kind: string; status: string; reason?: string }>>().notNull().default([]),
+    attachments: jsonb("attachments").$type<Array<import('./sourceAttachment').SourceAttachment>>().notNull().default([]),
     lastFetchedAt: ts("last_fetched_at"),
     isSample: boolean("is_sample").notNull().default(false),
     firstSeenAt: createdAt(),

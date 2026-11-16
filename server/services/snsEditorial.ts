@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { jobs, studioCards } from "../../shared/schema";
+import { jobs, studioCards, contentItems } from "../../shared/schema";
+import {loadNoticeBundleWriting} from './noticeBundleWriting';
 import { SNS_EDITORIAL_VERSION, buildSnsEditorialPrompt, snsWritingPrompt } from "../../shared/snsEditorial";
 import { snsEditorialDraftOutputSchema, type SnsEditorialDraftRequest, type SnsEditorialDraftReply } from "../../shared/snsEditorialDraft";
 import type { DB } from "../db";
@@ -64,11 +65,14 @@ export async function runSnsEditorialDraft(db: DB, cardId: number, input: SnsEdi
   const admitted = await db.transaction(async tx => {
     const card = await loadStudioCard(tx as unknown as DB, cardId, true);
     assertStudioActive(card);
+    const bundle=await loadNoticeBundleWriting(tx as unknown as DB,card.sourceItemId);
+    const bundleSource=bundle?{itemId:bundle.itemId,revisionId:bundle.revisionId}:null;
     const [prior] = await tx.select().from(jobs).where(eq(jobs.dedupeKey, key(cardId, input.requestId))).orderBy(jobs.id).limit(1);
     if (prior) {
       if (prior.payload.cancelledBeforeStart !== true && (prior.payload.requestHash !== requestHash || prior.requestedBy !== actor))
         throw new HttpError(409, "같은 요청 ID에 다른 입력을 사용할 수 없습니다. 새 요청으로 시작해 주세요.");
       if (card.version !== input.version) throw new HttpError(409, "저장된 원고가 변경됐습니다. 최신 작업에서 결과를 다시 확인해 주세요.");
+      if(JSON.stringify(prior.payload.bundleSource??null)!==JSON.stringify(bundleSource))throw new HttpError(409,'기관별 비교 자료가 바뀌었습니다. 최신 자료에서 새 요청으로 작성해 주세요.');
       return { job: prior, card, replay: true, selection: null, channel: null };
     }
     if (signal?.aborted) throw new HttpError(409, "작성 요청이 취소돼 AI를 호출하지 않았습니다.");
@@ -82,13 +86,13 @@ export async function runSnsEditorialDraft(db: DB, cardId: number, input: SnsEdi
     if (busy) throw new HttpError(409, "이 콘텐츠의 다른 AI 작업이 진행 중입니다. 완료 후 다시 요청해 주세요.", { activeJobId: busy.id });
     const now = new Date();
     const [job] = await tx.insert(jobs).values({ type: JOB_TYPE, channelId: channel.id, dedupeKey: key(cardId, input.requestId), requestedBy: actor,
-      payload: { cardId, version: input.version, requestId: input.requestId, requestHash, task: input.task, provider: selection.provider, model: selection.model, promptVersion: SNS_EDITORIAL_VERSION, voiceRevision: voice.revision, voiceHash: voice.hash },
+      payload: { cardId, version: input.version, requestId: input.requestId, requestHash, task: input.task, provider: selection.provider, model: selection.model, promptVersion: SNS_EDITORIAL_VERSION, voiceRevision: voice.revision, voiceHash: voice.hash,bundleSource },
       status: "running", attempts: 1, maxAttempts: 1, startedAt: now, heartbeatAt: now,
       leaseOwner: `sns-editorial:${randomUUID()}`, leaseExpiresAt: new Date(now.getTime() + REQUEST_LIMIT_MS + 30000),
     }).returning();
     await audit(tx, { actor, action: "start_editorial_draft", entity: "studio_card", entityId: cardId, channelId: channel.id,
       detail: { jobId: job.id, task: input.task, provider: selection.provider, model: selection.model, promptVersion: SNS_EDITORIAL_VERSION } });
-    return { job, card, replay: false, selection, channel, voice };
+    return { job, card, replay: false, selection, channel, voice, bundle };
   });
   const job = admitted.job;
   if (admitted.replay) {
@@ -115,7 +119,7 @@ export async function runSnsEditorialDraft(db: DB, cardId: number, input: SnsEdi
   }, 2000); watch.unref();
   try {
     controller.signal.throwIfAborted();
-    const result = await generateSnsEditorialDraft({ ...input, channel: admitted.card.content.channel, provider: admitted.selection!.provider,
+    const result = await generateSnsEditorialDraft({ ...input, referenceText:[input.referenceText,admitted.bundle?`[스튜디오의 기관별 공고 자료]\n${admitted.bundle.text}`:''].filter(Boolean).join('\n\n'),channel: admitted.card.content.channel, provider: admitted.selection!.provider,
       model: admitted.selection!.model, voicePrompt: admitted.voice?.prompt, brandGuide: [
         admitted.channel!.description && `채널 설명: ${admitted.channel!.description}`,
         admitted.channel!.audience && `채널 기본 독자: ${admitted.channel!.audience} (이번 요청에 명시한 독자가 우선)`,
@@ -124,6 +128,7 @@ export async function runSnsEditorialDraft(db: DB, cardId: number, input: SnsEdi
       ].filter(Boolean).join("\n"), signal: controller.signal });
     return await db.transaction(async tx => {
       const card = await loadStudioCard(tx as unknown as DB, cardId, true);
+      if(admitted.bundle){const [source]=await tx.select().from(contentItems).where(eq(contentItems.id,admitted.bundle.itemId));if(source?.currentRevisionId!==admitted.bundle.revisionId)throw new HttpError(409,'기관별 비교 자료가 바뀌었습니다. 최신 자료로 다시 작성해 주세요.');}
       const [current] = await tx.select().from(jobs).where(eq(jobs.id, job.id)).for("update");
       if (controller.signal.aborted || current?.status !== "running" || current.leaseOwner !== job.leaseOwner || !current.leaseExpiresAt || current.leaseExpiresAt <= new Date() || await getSetting(tx as unknown as DB, "global_stop", false))
         throw new HttpError(409, "작성 요청이 취소되거나 실행 시간이 만료돼 결과를 반환하지 않았습니다.");

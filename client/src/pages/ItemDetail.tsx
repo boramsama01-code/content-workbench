@@ -45,6 +45,8 @@ import { historyEntry } from "../StudioHistoryEntry";
 import { PublicationDraftControls } from "../PublicationDraftControls";
 import { compareSourceRevisions } from "@shared/sourceRevisionHistory";
 import { WorkModeControl, type WorkMode } from "../WorkModeControl";
+import {noticeBundleFromPayload} from '@shared/noticeBundle';
+import {NoticeBundlePanel,PdfPageEvidence} from '../NoticeBundle';
 
 type Detail = {
   imageAiAvailable?: boolean;
@@ -102,6 +104,7 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
   const [workMode, setWorkMode] = useState<WorkMode>(entryWorkMode);
   const [navigationIntent, setNavigationIntent] = useState<ItemNavigationIntent | null>(null);
   const handledNavigation = useRef<ItemNavigationIntent | null>(null);
+  const openedBundle=useRef<number|null>(null);
   useEffect(() => { if (sourceDraftDirty || sourceTextDirty) setSourceOpen(true); }, [sourceDraftDirty, sourceTextDirty]);
   const [, navigate] = useLocation();
   useEffect(() => {
@@ -111,6 +114,11 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
     setHistoryOpen(target === "history");
     setNavigationIntent(target === "delivery" ? { scope: navigationScope, anchor: "delivery-panel", behavior: "auto" } : null);
   }, [requestedCid, id, search]);
+  useEffect(()=>{
+    if(q.data?.item.id===id&&openedBundle.current!==id&&noticeBundleFromPayload(q.data.current?.payload)){
+      openedBundle.current=id;if(!['delivery','history'].includes(entryTab(search)))setSourceOpen(true);
+    }
+  },[id,q.data?.item.id,q.data?.current?.id,search]);
   useLayoutEffect(() => {
     const intent = navigationIntent;
     if (!intent || handledNavigation.current === intent) return;
@@ -147,6 +155,7 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
   // A failed background refresh must never unmount the editor or lose typed copy.
   if (!q.data) return <ErrorBox error={q.error} retry={() => q.refetch()} />;
   const d = q.data!;
+  const noticeBundle=noticeBundleFromPayload(d.current?.payload);
   const idea = readIdea(d.item.edited);
   if (d.item.origin === "idea" && idea && sourceChannel) return <IdeaDetail item={d.item} idea={idea} channel={sourceChannel.slug} />;
   const go = (t: ItemTab, anchor: string) => {
@@ -184,11 +193,12 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
         <button className="btn sm" onClick={() => go("delivery", "delivery-panel")}>전송 상태</button>
       </nav>
       <details className="content-drawer" open={sourceOpen || !d.current} onToggle={event => { if (event.target === event.currentTarget) setSourceOpen(event.currentTarget.open); }}>
-        <summary><strong>자료·초안</strong><span>{sourceDraftDirty || sourceTextDirty ? "저장하지 않은 변경" : d.primary?.fetchStatus === "ok" ? "본문 확보됨" : d.primary?.fetchStatus === "not_fetched" ? "본문 불러오기" : d.primary ? "본문 확인 필요" : "직접 작성"}</span></summary>
+        <summary><strong>자료·초안</strong><span>{sourceDraftDirty || sourceTextDirty ? "저장하지 않은 변경" : noticeBundle?noticeBundle.status==='collecting'?'선택한 공고 읽는 중':`공고 ${noticeBundle.rows.length}개 비교`:d.primary?.fetchStatus === "ok" ? "본문 확보됨" : d.primary?.fetchStatus === "not_fetched" ? "본문 불러오기" : d.primary ? "본문 확인 필요" : "직접 작성"}</span></summary>
         <div className="content-drawer-body stack">
           <CategorySelect channel={sourceChannel?.slug ?? ""} categories={sourceChannel?.categories} value={d.item.subcategory ?? ""} onChange={v => guard.confirmLeave(() => categorize.mutate(v))} disabled={categorize.isPending} />
           {categorize.error && <ErrorBox error={categorize.error} />}
           <DiscoveryNote info={d.item.discovery} />
+          {noticeBundle&&<NoticeBundlePanel bundle={noticeBundle} channelId={cid}/>}
           <SourcePanel key={d.item.id} d={d} cid={cid} onDirtyChange={setSourceTextDirty} />
           <EditPanel key={`${cid}-${d.item.id}`} d={d} cid={cid} templateKey={templateChoice} onTemplateChange={setTemplateChoice} onDirtyChange={setSourceDraftDirty} workMode={workMode} imageGeneration={imageGeneration} />
         </div>
@@ -281,6 +291,7 @@ function SourcePanel({ d, cid, onDirtyChange }: { d: Detail; cid: number; onDirt
                         ({a.kind.toUpperCase()} · {{ ok: "텍스트 추출함", pending: "미처리", manual_check: "수동 확인 필요", failed: "실패" }[a.status] ?? a.status}
                         {a.reason ? ` — ${a.reason}` : ""})
                       </span>
+                      {!!a.pages?.length&&<PdfPageEvidence pages={a.pages}/>}
                     </li>
                   ))}
                 </ul>
@@ -392,7 +403,7 @@ function SourcePanel({ d, cid, onDirtyChange }: { d: Detail; cid: number; onDirt
 /* ───────────── 편집 ───────────── */
 function sourceFields(payload: Record<string, any> | null | undefined) {
   if (!payload) return null;
-  const { cardCopy: _cardCopy, ...fields } = payload;
+  const { cardCopy: _cardCopy, noticeBundle: _serverBundle, ...fields } = payload;
   return fields;
 }
 

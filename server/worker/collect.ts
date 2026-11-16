@@ -21,6 +21,7 @@ import { naverSearch, applyExcludeTerms, NaverError, searchCalls, type CallCount
 import { createNewsSearch, type RssLoader } from "../services/newsSearch";
 import { normalizeUrl } from "../services/url";
 import { extractPdf } from "../services/extract";
+import {isGedNoticePage} from '../services/gedAttachments';
 import { fetchPublisherArticle as fetchAndExtract } from "../services/publisherLookup";
 import { sourceFetchUrl } from "../services/sourceFetchUrl";
 import { safeFetch } from "../services/safeFetch";
@@ -538,6 +539,9 @@ export async function extractForItem(
 ) {
   const [item] = await db.select().from(contentItems).where(eq(contentItems.id, itemId));
   if (!item) return { ok: false as const, kind: "no_source", error: "항목 없음" };
+  const [priorRevision] = item.currentRevisionId ? await db.select().from(contentRevisions).where(eq(contentRevisions.id, item.currentRevisionId)) : [];
+  const isNoticeBundle=(value:unknown)=>!!value&&typeof value==='object'&&(value as {noticeBundle?:{version?:unknown}}).noticeBundle?.version===1;
+  if([priorRevision?.payload,item.edited,item.extracted].some(isNoticeBundle))return {ok:false as const,kind:'parse' as const,error:'여러 공고 묶음은 기관별 비교 자료에서 다시 읽어 주세요. 개별 모집요강으로 합쳐 추출하지 않았습니다.'};
   const doc = await itemPrimarySource(db, item);
   if (!doc || doc.fetchStatus !== "ok" || !doc.fetchedText) return { ok: false as const, kind: "no_source", error: "원문 미확보 — 추출하지 않음" };
   const offs = officials ?? (await loadOfficials(db, item.channelId));
@@ -556,7 +560,6 @@ export async function extractForItem(
   }
   const { cardCopy: _summaryCopy, ...facts } = r.data;
   const payload: NoticePayload = { ...facts };
-  const [priorRevision] = item.currentRevisionId ? await db.select().from(contentRevisions).where(eq(contentRevisions.id, item.currentRevisionId)) : [];
   const selectedTemplate = templateKey ?? channel.cardTemplate;
   if (!priorRevision?.payload.cardCopy && payload.relevance !== "irrelevant" && readingProfileForTemplateKey(selectedTemplate)) {
     const scheduleStatus = computeScheduleStatus(payload.schedules, now);
@@ -651,7 +654,9 @@ async function fetchDoc(db: DB, docId: number, fetcher: typeof fetchAndExtract, 
   }
   let text = r.text;
   const attachments = [...r.attachments];
-  const pdf = attachments.find((a) => a.kind === "pdf" && a.status === "pending");
+  // GED's reader already accounted for its bounded PDF set, page proof and
+  // call budget. The generic one-file fallback must not add a fourth download.
+  const pdf = !isGedNoticePage(r.finalUrl) ? attachments.find((a) => a.kind === "pdf" && a.status === "pending") : undefined;
   if (pdf && takeExtraCall()) {
     currentGenerationSignal()?.throwIfAborted();
     try {
