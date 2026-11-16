@@ -124,6 +124,14 @@ describe('선택한 모집 공고로 별도 콘텐츠 만들기',()=>{
   const [job]=await db.select().from(jobs).where(eq(jobs.id,created.jobId));const row=(job.payload.bundle as any).rows[0];
   expect(row).toMatchObject({fetchStatus:'unsupported',extracted:null});expect(row.issue).toContain('이전 게시판 목록');expect((job.payload.bundle as any).status).toBe('partial');expect(extractOne).not.toHaveBeenCalled();
  });
+ it('GED연결에직접붙여넣은본문은자동PDF처럼차단하지않고직접입력확인필요로보존한다',async()=>{
+  const a=await notice('직접 입력 기관'),b=await notice('자동 확보 기관'),db=getDb();
+  await db.update(sourceDocuments).set({kind:'manual_text',originalUrl:'https://ged.kedi.re.kr/notice/popup.do?seq=8',attachments:[]}).where(eq(sourceDocuments.id,a.doc!.id));
+  const created=await createNoticeBundle(db,1,{itemIds:[a.item.id,b.item.id],requestId:crypto.randomUUID()},'operator');await finish(2);
+  const [job]=await db.select().from(jobs).where(eq(jobs.id,created.jobId));const row=(job.payload.bundle as any).rows[0];
+  expect(row).toMatchObject({sourceId:a.doc!.id,fetchStatus:'ok',extracted:{organization:'직접 입력 기관'}});expect(row.text).toContain('직접 입력 기관');expect(row.issue).toContain('직접 입력');
+  expect((job.payload.bundle as any).status).toBe('partial');expect(fetchSource).not.toHaveBeenCalled();expect(extractOne).not.toHaveBeenCalled();
+ });
  it('원문이기존조건정리이후바뀌면옛지원대상을새본문에재사용하지않는다',async()=>{
   const a=await notice('정정된 기관'),b=await notice('유지 기관'),db=getDb();
   await db.update(sourceDocuments).set({contentHash:'c'.repeat(64),lastFetchedAt:new Date(Date.now()+1000),fetchedText:'정정된 모집요강. 지원 대상은 현재 중학교 1학년입니다.'}).where(eq(sourceDocuments.id,a.doc!.id));

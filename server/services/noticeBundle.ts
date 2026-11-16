@@ -127,7 +127,8 @@ export async function processNoticeBundleJob(db:DB,job:Job,workerId:string):Prom
      doc=(await persistSourceFetchAttempt(db,doc.id,result,{attemptStartedAt:started})).document;
     }
     Object.assign(row,{url:publicUrl(typeof doc.meta.finalUrl==='string'?doc.meta.finalUrl:doc.originalUrl),fetchStatus:doc.fetchStatus==='ok'?'ok':['failed','blocked','unsupported'].includes(doc.fetchStatus)?doc.fetchStatus:'failed',text:doc.fetchedText??'',textHash:doc.contentHash,attachments:doc.attachments,issue:[attemptIssue,doc.fetchStatus==='ok'?sourceIssue(doc):doc.fetchError||'원문을 읽지 못했습니다.'].filter(Boolean).join(' · ')||undefined});
-    if(isGedSource(doc)&&!gedPrimaryProof(doc)){row.fetchStatus='unsupported';row.extracted=null;row.issue=[row.issue,'모집요강 PDF의 실제 페이지 본문을 확보하지 못했습니다. 이전 게시판 목록을 모집요강으로 사용하지 않았습니다.'].filter(Boolean).join(' · ');}
+    if(doc.kind==='manual_text')row.issue=[row.issue,'직접 입력한 본문입니다. 실제 모집요강 원문과 대조해 확인해 주세요.'].filter(Boolean).join(' · ');
+    if(doc.kind!=='manual_text'&&isGedSource(doc)&&!gedPrimaryProof(doc)){row.fetchStatus='unsupported';row.extracted=null;row.issue=[row.issue,'모집요강 PDF의 실제 페이지 본문을 확보하지 못했습니다. 이전 게시판 목록을 모집요강으로 사용하지 않았습니다.'].filter(Boolean).join(' · ');}
     if(row.fetchStatus==='ok'&&doc.fetchedText?.trim()){
      const [original]=await db.select().from(contentItems).where(and(eq(contentItems.id,selection.itemId),eq(contentItems.channelId,job.channelId!)));
      const [revision]=selection.revisionId?await db.select().from(contentRevisions).where(and(eq(contentRevisions.id,selection.revisionId),eq(contentRevisions.contentItemId,selection.itemId))):[];

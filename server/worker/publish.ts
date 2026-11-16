@@ -77,6 +77,7 @@ export async function currentRevision(db: DB, itemId: number) {
 }
 
 export async function sourceOrgFor(db: DB, item: { id?: number; primarySourceId: number | null }, payload: Record<string, any>) {
+  if(noticeBundleFromPayload(payload))return '선택한 기관별 모집 공고';
   if (payload.organization) return String(payload.organization);
   const doc = item.id ? await itemPrimarySource(db, { id:item.id, primarySourceId:item.primarySourceId }) : item.primarySourceId ? (await db.select().from(sourceDocuments).where(eq(sourceDocuments.id,item.primarySourceId)))[0] : null;
   if (!doc) return null;
@@ -620,3 +621,4 @@ export async function retryDelivery(db: DB, deliveryId: number, actor: string, c
     return { ok: true as const, deliveryId: d.id, approvalId: ap.id };
   });
 }
+import {noticeBundleFromPayload} from '../../shared/noticeBundle';

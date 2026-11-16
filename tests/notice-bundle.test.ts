@@ -3,6 +3,7 @@ import {buildNoticeBundlePayload,noticeBundleRequestSchema,noticeBundleWritingCo
 import {cardCopySchema} from '../shared/cardCopy';
 import {planCarousel,renderCarouselPage} from '../server/services/cardCarousel';
 import sharp from 'sharp';
+import {buildCaptions} from '../server/services/cardModel';
 const fixture=():NoticeBundle=>({version:1,status:'ready',sourceItemIds:[10,20],instruction:'지역별 영재학급 비교',createdAt:'2026-11-16T00:00:00.000Z',rows:[
  {itemId:10,title:'가 영재학급',url:'https://example.org/a',sourceId:100,fetchStatus:'ok',text:'가 기관 원문',extracted:{organization:'가 기관',academic_year:'2027',audience:'현재 초등학교 5학년',eligibility:'가 지역 재학생만',schedules:[{kind:'apply',label:'학생 접수',end:{date:'2026-11-20'},raw:'학생 접수 11월 20일까지'},{kind:'other',label:'교사 추천',end:{date:'2026-11-25'},raw:'교사 추천 11월 25일까지'}],key_details:'20명 선발',uncertainties:[]},attachments:[{name:'가 모집요강.pdf',url:'https://example.org/a.pdf',kind:'pdf',status:'ok',pages:[{page:3,text:'지원자는 가 지역 재학생이어야 합니다.'}]}]},
  {itemId:20,title:'나 영재학급',url:'https://example.org/b',sourceId:200,fetchStatus:'ok',text:'나 기관 원문',extracted:{organization:'나 기관',academic_year:'2027',audience:'현재 중학교 1학년',eligibility:'나 지역 거주자',schedules:[{kind:'apply',label:'학생 접수',end:{date:'2026-12-01'},raw:'12월 1일 마감'}],key_details:'정원은 원문에서 확인',uncertainties:[]}},
@@ -38,5 +39,11 @@ describe('모집 공고 묶음의 기관별 사실 보존',()=>{
   const body=await renderCarouselPage(plan,1,style,null,'');
   expect(await sharp(body).metadata()).toMatchObject({width:1080,height:1350,format:'jpeg'});
   expect(plan.count).toBe(cardCopySchema.parse(payload.cardCopy).pages.length+2);
+ });
+ it('캡션 출처를 첫 기관 하나로 돌리지 않고 모든 기관과 원문을 남긴다',()=>{
+  const payload=buildNoticeBundlePayload(fixture(),'기관별 영재학급 비교');
+  const captions=buildCaptions({kind:'notice',payload,sourceOrg:'첫 기관만',sourceUrl:'https://example.org/a'});
+  expect(captions.instagram).toContain('가 기관');expect(captions.instagram).toContain('나 기관');expect(captions.instagram).not.toContain('첫 기관만');
+  expect(captions.telegram).toContain('https://example.org/a');expect(captions.telegram).toContain('https://example.org/b');
  });
 });
