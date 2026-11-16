@@ -32,7 +32,7 @@ try {
       if (url.origin !== origin) { errors.push(`External request blocked: ${url.origin}`); return route.abort(); }
       if (!p.startsWith("/api/")) return route.continue();
       const method = req.method(); let data;
-      if (p === "/api/auth/me") data = { user: "visual-fixture", csrf: "fixture", demo: false, recoveryScope: `sns-browser-${width}`, authConfigured: true, demoAllowed: false };
+      if (p === "/api/auth/me") data = { user: "visual-fixture", csrf: "fixture", demo: false, recoveryScope: `sns-writing-browser-${width}`, authConfigured: true, demoAllowed: false };
       else if (p === "/api/channels") data = [channel];
       else if (p === "/api/status") data = { globalStop: false, workerConnected: true, integrations: { flags: { dryRun: true, autoPublish: false } } };
       else if (p === "/api/studio/cards") data = { cards: [card, video], ai, notes: { notes: "", version: 1 }, trashCount: 0 };
@@ -63,6 +63,7 @@ try {
     await desk.getByLabel("더 다듬고 싶은 점", { exact: true }).fill("군더더기는 줄이고 실제 장면은 살려 주세요.");
     await desk.locator('select[id$="-task"]').selectOption("caption_review");
     assert.equal(await desk.getByLabel("더 다듬고 싶은 점", { exact: true }).inputValue(), "군더더기는 줄이고 실제 장면은 살려 주세요.");
+    assert.equal(await desk.getByText("로그인 세션이 바뀌어", { exact: false }).count(), 0, "valid fixture sessions retain device recovery");
     await desk.getByRole("button", { name: "스튜디오에서 제안 받기", exact: true }).click();
     await desk.getByRole("region", { name: "글쓰기 제안 결과" }).waitFor();
     assert.equal(await desk.locator(".sns-result-hooks article").count(), 3);
