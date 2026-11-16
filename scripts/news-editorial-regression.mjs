@@ -337,7 +337,7 @@ async function layoutFits(page, label) {
 }
 async function openBackground(page) {
   const editor = page.locator('.page-background-editor');
-  if (!await editor.evaluate(node => node.open)) await editor.locator('summary').click();
+  if (!await editor.evaluate(node => node.open)) await editor.locator(':scope > summary').click();
   return editor;
 }
 async function pasteBackground(page) {
