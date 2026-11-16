@@ -1,4 +1,5 @@
 import { studioKey } from "./channelKeys";
+import { HIGHSCOOP_TITLE_PROMPT_VERSION, HIGHSCOOP_TITLE_RULES } from "./highscoopTitlePrompt";
 
 export const SNS_EDITORIAL_VERSION = "spacepenguin-editorial-v2-20261116";
 
@@ -23,7 +24,7 @@ export type SnsTaskId = typeof SNS_TASKS[number]["id"];
 export const SNS_VOICE_SUMMARY = [
   "짧고 선명한 제목. 대상과 행동을 읽자마자 이해하게 씁니다.",
   "사실에서 나오는 비유와 반전. 없는 경험·숫자·성과를 만들지 않습니다.",
-  "사건에서 생활의 의미로 이어지고, 필요한 경우 생각할 질문 하나를 남깁니다.",
+  "모집은 조건과 행동, 경험은 막힘과 해결 과정, 뉴스는 장면과 이유를 중심으로 풀어냅니다.",
   "잘 쓴 기존 문장은 살리고, 요청한 부분만 더 정확하고 자연스럽게 다듬습니다.",
 ];
 
@@ -36,6 +37,15 @@ const VOICE_RULES = `우주펭귄상회 공통 글쓰기 기준
 - 사건 → 왜 눈여겨볼 일인지 → 독자의 생활·선택과 닿는 의미로 연결한다. 핵심 질문 하나로 모으되, 요청된 형식의 대화 질문·선택 질문·후속 질문 수는 지킨다. 모든 글을 교훈·육아·미래 인재 이야기로 끝내지 않는다.
 - '오늘은 ~에 대해 알아볼게요', '단순한 ~를 넘어', '놀라운 가능성', '꼭 기억하세요' 같은 비어 있는 시작과 결말을 걷어낸다. 실제 정보가 있는 문장부터 시작한다.
 - 작성자가 실제로 하지 않은 가족 경험, 직접 본 듯한 후기, 아이의 대사와 감정을 만들지 않는다. 제공된 실제 표현을 더 명확하게 다듬되 다른 사람의 유행 문체로 덮지 않는다.
+
+[글의 유형과 본문 리듬]
+- 먼저 모집·정보 안내, 개인 경험, 뉴스·발견 중 이 글의 목적을 구분한다. 모든 글에 같은 도입·기승전결·마지막 질문을 덧씌우지 않는다.
+- 모집·정보 안내는 대상과 기회를 먼저 밝히고, 독자가 실제로 물을 질문에 구체적인 행동으로 답한다. 낯선 전형 용어는 무엇을 준비하고 제출하는지로 풀고 접수·발급·제출 방법과 날짜를 분리한다. 표지에 월·지역·기관이 분명한 정보형 제목도 필요하며 모든 제목을 비유나 반문으로 바꾸지 않는다.
+- 개인 경험은 실제로 겪은 막힘 → 직접 해본 방법 → 고치고 다시 확인한 과정 → 알게 된 점과 부담 없는 권유로 잇는다. 자료에 있는 경험만 1인칭으로 쓴다. 실제 경험이 없으면 이 구조를 채우려고 경험담을 만들지 않는다.
+- 경험담의 본문에도 짧은 농담·괄호 속 혼잣말·자조가 들어갈 수 있다. 작업을 고치고 또 고치는 상황의 가벼운 유머처럼 그 장면에서 나와야 한다. 뉴스·모집 정보에 농담을 기계적으로 붙이거나 모든 문장에 감탄사와 이모지를 넣지 않는다.
+- 뉴스·발견은 눈에 보이는 장면 → 왜 가능한지·무엇이 달라졌는지 → 생활과 선택에 닿는 의미로 설명한다. 필요한 경우에만 남은 질문을 잇는다. 부모 경험담이나 입시 조언으로 억지로 전환하지 않는다.
+- 짧게 쓰는 것 자체를 목표로 삼지 않는다. 용어를 풀어 주는 문장, 왜 그런지 설명하는 연결, 독자가 따라 할 단계는 남긴다. 중간 설명을 생략해 독자가 다시 뜻을 추측하게 만들지 않는다.
+- 정보의 정확한 설명과 독자에게 말을 거는 자연스러운 존댓말을 섞는다. 도움을 주는 경험자의 태도를 유지하고 독자를 가르치거나 채점하는 말투를 줄인다. 개인 관찰을 모든 아이의 특성이나 보장된 교육 효과로 일반화하지 않는다.
 
 [사실을 보존하는 편집]
 - 날짜·시제·완료 여부·주체·대상·단위·조건을 원문과 대조한다. '회수할'과 '회수한', 우주선과 로켓 부스터, 발언과 검증 결과를 구분한다.
@@ -91,7 +101,7 @@ export type SnsEditorialInput = {
   referenceText: string; existingText: string; instruction: string;
 };
 
-export function buildSnsEditorialPrompt(input: SnsEditorialInput): string {
+export function buildSnsEditorialPrompt(input: SnsEditorialInput, options: { includeVoice?: boolean } = {}): string {
   const task = SNS_TASKS.find(item => item.id === input.task);
   if (!task) throw new Error("글쓰기 작업을 선택해 주세요.");
   if (Object.values(input).some(value => typeof value !== "string" || value.length > 24000)) {
@@ -100,11 +110,13 @@ export function buildSnsEditorialPrompt(input: SnsEditorialInput): string {
   const data = JSON.stringify({ topic: input.topic, audience: input.audience, format: input.format,
     channel: input.channel, references: input.referenceText, currentCopy: input.existingText, editRequest: input.instruction }, null, 2)
     .replace(/</g, "‹").replace(/>/g, "›");
-  return [snsWritingPrompt({ channel: input.channel, format: input.format, scope: input.task === "caption_review" ? "caption" : input.task.endsWith("audit") ? "review" : "draft" }),
+  return [options.includeVoice === false ? "" : snsWritingPrompt({ channel: input.channel, format: input.format, scope: input.task === "caption_review" ? "caption" : input.task.endsWith("audit") ? "review" : "draft" }),
+    ...(studioKey(input.channel) === "highscoop" && (input.task === "reel_script" || input.task === "carousel_plan")
+      ? [`[HighScoop 제목 지침 ${HIGHSCOOP_TITLE_PROMPT_VERSION}]\n${HIGHSCOOP_TITLE_RULES}\n후보와 최종 문구는 이번 작업의 결과 구조를 따른다. 다른 편집기의 필드명이나 카드 장수 계약을 가져오지 않는다.`] : []),
     `[선택 작업: ${task.label}]\n${TASK_RULES[input.task]}\n결과 구성: ${task.outputHint}`,
-    "[작업 순서]\n자료에서 확인된 핵심과 독자가 얻을 내용을 잡는다 → 해당 작업을 작성한다 → 사실·문체·제목의 약속을 대조한다 → 공개용 최종 문구와 편집자용 설명을 분리한다. 자료 부족으로 핵심을 확인할 수 없으면 필요한 근거를 구체적으로 적고 가짜 완성본을 만들지 않는다. 외부 게시·댓글·DM 전송은 실행하지 않는다.",
+    "[작업 순서]\n자료에서 확인된 핵심과 독자가 얻을 내용을 잡는다 → 글의 유형에 맞는 흐름으로 작성한다 → 제출 전 사실·문체·제목의 약속을 다시 대조해 필요한 설명의 생략과 상투적인 문장을 고친다 → 공개용 최종 문구와 편집자용 설명을 분리한다. 출력에는 완성안과 중요한 수정 이유만 남긴다. 이전 AI 제안이 입력에 있으면 검증되지 않은 초안으로 취급하며 사실의 근거로 쓰지 않는다. 수정 요청에서는 선택한 표현과 수정 범위를 우선하고 나머지를 새 글처럼 갈아엎지 않는다. 자료 부족으로 핵심을 확인할 수 없으면 필요한 근거를 구체적으로 적고 가짜 완성본을 만들지 않는다. 외부 게시·댓글·DM 전송은 실행하지 않는다.",
     `[입력 데이터]\n${data}`,
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export type SnsCopyCheck = { id: string; label: string; status: "pass" | "review" | "missing"; detail: string };

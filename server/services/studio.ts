@@ -72,7 +72,7 @@ export async function setStudioTrash(db: DB, cardId: number, version: number, tr
     let cancelledJobs = 0, cancelledDeliveries = 0, alreadyProcessing = 0;
     if (trash) {
       const cancelled = await tx.update(jobs).set({ status: "cancelled", finishedAt: now, leaseOwner: null, leaseExpiresAt: null, lastError: "콘텐츠를 휴지통으로 이동해 취소했습니다." })
-        .where(and(inArray(jobs.type, ["studio_generate", "studio_editorial_draft"]), sql`${jobs.payload}->>'cardId' = ${String(cardId)}`, inArray(jobs.status, ["queued", "running"]))).returning({ id: jobs.id });
+        .where(and(inArray(jobs.type, ["studio_generate", "studio_editorial_draft", "studio_codex_draft", "studio_canva_sync"]), sql`${jobs.payload}->>'cardId' = ${String(cardId)}`, inArray(jobs.status, ["queued", "running"]))).returning({ id: jobs.id });
       cancelledJobs = cancelled.length;
       if (current.sourceItemId) {
         const sent = await tx.select({ id: deliveries.id }).from(deliveries).innerJoin(approvals, eq(approvals.id, deliveries.approvalId))
@@ -243,7 +243,7 @@ export async function queueStudioGeneration(db: DB, cardId: number, input: Studi
     }
     if (card.version !== input.version) conflict(studioCardDto(card));
     const [editorialJob] = await tx.select({ id: jobs.id }).from(jobs).where(and(
-      eq(jobs.type, "studio_editorial_draft"), inArray(jobs.status, ["queued", "running"]),
+      inArray(jobs.type, ["studio_editorial_draft", "studio_codex_draft", "studio_canva_sync"]), inArray(jobs.status, ["queued", "running"]),
       sql`${jobs.payload}->>'cardId' = ${String(cardId)}`,
     )).limit(1);
     if (editorialJob) throw new HttpError(409, "이 콘텐츠의 글쓰기 제안을 작성 중입니다. 완료하거나 중단한 뒤 다시 요청하세요.", { jobId: editorialJob.id });

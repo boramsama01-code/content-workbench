@@ -30,6 +30,9 @@ import { FINAL_POSE_VERSION, POSE_ASSET_VERSIONS } from "../../shared/studioFina
 import { studioFinalAsset } from "../services/studioFinalAssets";
 import { instagramOAuthRoutes } from "./instagramOAuth";
 import { snsEditorialRoutes } from "./snsEditorial";
+import { codexWriterOperatorRoutes } from "./codexWriter";
+import { editorialVoiceRoutes } from "./editorialVoice";
+import { canvaStudioSyncRoutes } from "./canvaStudioSync";
 import { studioPublicationDraftSaveSchema } from "../../shared/publicationDraft";
 import { getStudioPublicationDraft, saveStudioPublicationDraft } from "../services/publicationDraft";
 
@@ -41,6 +44,9 @@ studioRoutes.use("/studio", (_req, res, next) => { res.set("Cache-Control", "no-
 studioRoutes.use(zipImportRoutes);
 studioRoutes.use(instagramOAuthRoutes);
 studioRoutes.use(snsEditorialRoutes);
+studioRoutes.use(codexWriterOperatorRoutes);
+studioRoutes.use(editorialVoiceRoutes);
+studioRoutes.use(canvaStudioSyncRoutes);
 // Mounted behind the same operator-session middleware as all studio routes.
 studioRoutes.get("/studio/brand-assets/:asset", ah(async (req, res) => {
   const asset = registeredProfileAsset(req.params.asset);
@@ -148,7 +154,7 @@ studioRoutes.get("/studio/cards/:id/export.png", ah(async (req, res) => {
   const version = req.query.version === undefined ? undefined : parse(z.coerce.number().int().positive(), req.query.version);
   const exported = await renderStudioOutput(getDb(), id, version);
   if (exported.content.format === "카드뉴스" && req.query.page === undefined) throw new HttpError(400, "카드뉴스는 ZIP으로 내려받거나 미리보기 페이지를 선택하세요.");
-  const page = req.query.page === undefined ? 0 : parse(z.coerce.number().int().min(0).max(9), req.query.page);
+  const page = req.query.page === undefined ? 0 : parse(z.coerce.number().int().min(0).max(19), req.query.page);
   res.type("image/png").set("Content-Disposition", `${req.query.preview === "1" ? "inline" : "attachment"}; filename="studio-${id}-v${exported.version}.png"`).send(await exported.page(page));
 }));
 studioRoutes.get("/studio/cards/:id/export.zip", ah(async (req, res) => {

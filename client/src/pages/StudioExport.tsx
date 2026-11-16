@@ -14,9 +14,10 @@ import { experienceImageUrl } from "@shared/experience";
 import "../studioAutomation.css";
 
 async function downloadCard(card: StudioCard) {
+  if (!card.finishedDeck && card.sourceOutput?.stale) throw new Error("연결된 원고가 바뀌었습니다. 최신 카드뉴스를 확인한 뒤 내려받으세요.");
   const zip = !!card.finishedDeck || !!card.sourceOutput || card.format === "카드뉴스";
   const extension = zip ? "zip" : "png";
-  const blob = await apiBlob(card.sourceOutput && !card.finishedDeck ? `/channels/${card.sourceOutput.channelId}/media/${card.sourceOutput.assetId}/deck.zip` : `/studio/cards/${card.id}/export.${extension}?version=${card.version}`, zip ? "application/zip" : "image/png");
+  const blob = await apiBlob(card.sourceOutput && !card.finishedDeck ? `/channels/${card.sourceOutput.channelId}/media/${card.sourceOutput.assetId}/deck.zip?expectedRevision=${card.sourceOutput.revisionId}` : `/studio/cards/${card.id}/export.${extension}?version=${card.version}`, zip ? "application/zip" : "image/png");
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -28,9 +29,10 @@ async function downloadCard(card: StudioCard) {
 export function StudioQuickExport({ card }: { card: StudioCard }) {
   const toast = useToast();
   const download = useMutation({ mutationFn: () => downloadCard(card), onError: error => toast("err", error.message) });
+  const staleSource = !card.finishedDeck && !!card.sourceOutput?.stale;
   if (!["웹툰", "카드뉴스"].includes(card.format)) return null;
   return <div className="studio-quick-export">
-    <button className="btn sm" disabled={download.isPending} onClick={() => download.mutate()}>{download.isPending ? "만드는 중…" : card.sourceOutput ? `${card.sourceOutput.pages.length}장 ZIP 저장` : card.format === "카드뉴스" ? `${studioPageCount(card)}장 ZIP 저장` : "PNG 저장"}</button>
+    <button className="btn sm" disabled={download.isPending || staleSource} title={staleSource ? "연결된 원고가 바뀌었습니다. 최신 카드뉴스를 확인하세요." : undefined} onClick={() => download.mutate()}>{download.isPending ? "만드는 중…" : card.sourceOutput && !card.finishedDeck ? `${card.sourceOutput.pages.length}장 ZIP 저장` : card.format === "카드뉴스" ? `${studioPageCount(card)}장 ZIP 저장` : "PNG 저장"}</button>
     <button className="btn sm ghost" disabled={!card.caption} onClick={async () => {
       try { await navigator.clipboard.writeText(card.caption); toast("ok", "캡션을 복사했습니다."); }
       catch { toast("err", "작업을 열어 캡션을 직접 복사해 주세요."); }

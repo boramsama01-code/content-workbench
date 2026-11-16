@@ -1,0 +1,66 @@
+import { createHash, randomUUID } from "node:crypto";
+import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import request from "supertest";
+import { eq, sql } from "drizzle-orm";
+import { login, resetDb, setTestEnv } from "./helpers";
+setTestEnv();
+const { createApp } = await import("../server/app");
+const { getDb, closeDb } = await import("../server/db");
+const { appSettings, auditLogs, jobs, channels } = await import("../shared/schema");
+const { loadEditorialVoiceSnapshot } = await import("../server/services/editorialVoice");
+let app: ReturnType<typeof createApp>;
+const path = "/api/studio/editorial-voice/highscoop";
+beforeAll(async () => { await resetDb(); app = createApp(); });
+afterAll(async () => { await closeDb(); });
+beforeEach(async () => { await getDb().delete(appSettings).where(sql`${appSettings.key} like 'sns_voice_profile:%'`); });
+const feedback = (over: Record<string, unknown> = {}) => ({ expectedRevision: 0, requestId: randomUUID(), rule: "확정한 제목은 살리고 요청한 부분만 고쳐 주세요.", approvedText: "내가 실제로 채택한 비공개 문구", rejectedText: "내가 거절한 비공개 문구", explanation: "추상어를 덜어냄", genre: "news", role: "title", ...over });
+it("requires operator authentication, CSRF and explicit feedback before storing any memory", async () => {
+  expect((await request(app).get(path)).status).toBe(401);
+  const { agent, csrf } = await login(app), header = { "x-csrf-token": csrf };
+  expect((await agent.get(path)).body).toMatchObject({ profileRevision: 0, rules: [], examples: [] });
+  expect((await agent.post(`${path}/feedback`).send(feedback())).status).toBe(403);
+  expect((await agent.post(`${path}/feedback`).set(header).send({ expectedRevision: 0, requestId: randomUUID() })).status).toBe(400);
+  expect((await agent.get(path)).body.profileRevision).toBe(0);
+});
+it("saves correction pairs once, shares canonical aliases, isolates brands and keeps raw text out of audit logs", async () => {
+  const { agent, csrf } = await login(app), header = { "x-csrf-token": csrf }, input = feedback();
+  const saved = await agent.post(`${path}/feedback`).set(header).send(input);
+  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  expect(saved.body).toMatchObject({ schemaVersion: 1, profileRevision: 1, rules: [{ text: input.rule }], examples: [{ approvedText: input.approvedText, rejectedText: input.rejectedText, role: "title", genre: "news" }] });
+  expect((await agent.post(`${path}/feedback`).set(header).send(input)).body).toEqual(saved.body);
+  expect((await agent.get("/api/studio/editorial-voice/opportunities")).body).toEqual(saved.body);
+  expect((await agent.get("/api/studio/editorial-voice/fryday")).body.examples).toEqual([]);
+  expect(JSON.stringify(await getDb().select().from(auditLogs))).not.toContain(input.approvedText);
+  expect(JSON.stringify(await getDb().select().from(auditLogs))).not.toContain(input.rejectedText);
+  const [channel] = await getDb().select().from(channels).where(eq(channels.slug, "opportunities"));
+  const snapshot = await loadEditorialVoiceSnapshot(getDb(), channel.id);
+  expect(snapshot).toMatchObject({ revision: 1, hash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+  expect(snapshot.prompt).toContain(input.approvedText); expect(snapshot.prompt).toContain("이번 글의 근거가 아니다");
+});
+it("rejects conflicting revisions and UUID reuse, and allows explicit removal with compare-and-swap", async () => {
+  const { agent, csrf } = await login(app), header = { "x-csrf-token": csrf }, input = feedback();
+  const first = await agent.post(`${path}/feedback`).set(header).send(input);
+  expect((await agent.post(`${path}/feedback`).set(header).send(feedback())).status).toBe(409);
+  expect((await agent.post(`${path}/feedback`).set(header).send({ ...input, rule: "다른 내용" })).status).toBe(409);
+  const removed = await agent.put(path).set(header).send({ expectedRevision: 1, requestId: randomUUID(), rules: first.body.rules, examples: [] });
+  expect(removed.status).toBe(200); expect(removed.body).toMatchObject({ profileRevision: 2, examples: [] });
+  expect((await agent.get(path)).body.rules).toHaveLength(1);
+});
+it("serializes two competing feedback saves without silently losing either user's revision check", async () => {
+  const { agent, csrf } = await login(app), header = { "x-csrf-token": csrf };
+  const results = await Promise.all([agent.post(`${path}/feedback`).set(header).send(feedback()), agent.post(`${path}/feedback`).set(header).send(feedback({ rule: "두 번째 기준" }))]);
+  expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+  expect((await agent.get(path)).body).toMatchObject({ profileRevision: 1 });
+  expect((await agent.get(path)).body.rules).toHaveLength(1);
+});
+it("takes an immutable style snapshot into a sealed Codex request without copying private examples into job metadata", async () => {
+  const { agent, csrf } = await login(app), header = { "x-csrf-token": csrf }, input = feedback();
+  await agent.post(`${path}/feedback`).set(header).send(input);
+  process.env.STUDIO_CODEX_WRITER_TOKEN_SHA256 = createHash("sha256").update("isolated-voice-memory-worker-token-not-real").digest("hex");
+  const created = await agent.post("/api/studio/cards").set(header).send({ title: "원고", channel: "highscoop", format: "카드뉴스" });
+  const queued = await agent.post(`/api/studio/cards/${created.body.id}/codex-draft`).set(header).send({ version: 1, requestId: randomUUID(), task: "carousel_plan", topic: "주제", audience: "부모", format: "카드뉴스", referenceText: "새 원문", existingText: "현재 원고", instruction: "" });
+  expect(queued.status).toBe(202);
+  const [job] = await getDb().select().from(jobs).where(eq(jobs.id, queued.body.jobId));
+  expect(job.payload).toMatchObject({ voiceProfileRevision: 1, voiceProfileHash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+  expect(JSON.stringify(job.payload)).not.toContain(input.approvedText);
+});

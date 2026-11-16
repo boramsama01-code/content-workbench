@@ -1,4 +1,5 @@
 import { CanvaEditorial } from "../CanvaEditorial";
+import { CanvaStudioSync } from "../CanvaStudioSync";
 import { editorialPlanSchema, familyCardCopySchema, pageDesignsSchema } from "@shared/familyDialogue";
 import { CategorySelect } from "../CategorySelect";
 import { CardCarousel } from "../CardCarousel";
@@ -174,6 +175,7 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
         </div>
       </div>
       {q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}
+      {!fromStudio && d.canonicalStudioCardId && <CanvaStudioSync key={`canva-sync-${d.canonicalStudioCardId}`} cardId={d.canonicalStudioCardId}/>}
       <WorkModeControl mode={workMode} onChange={setWorkMode} />
       <nav className="content-workspace-nav" aria-label="현재 콘텐츠 작업">
         <button className="btn sm" onClick={() => go("publish", "card-panel")} disabled={!d.current}>카드 편집</button>

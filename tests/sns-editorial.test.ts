@@ -3,6 +3,7 @@ import { SNS_TASKS, SNS_EDITORIAL_VERSION, buildSnsEditorialPrompt, inspectSnsCo
 import { studioContentSchema } from "../shared/studio";
 import { studioChatGptCaptionPrompt, studioChatGptTextPrompt } from "../shared/studioTextImport";
 import { itemChatGptPrompt } from "../shared/chatgptLink";
+import { HIGHSCOOP_TITLE_PROMPT_VERSION } from "../shared/highscoopTitlePrompt";
 
 const request = (task: SnsTaskId) => buildSnsEditorialPrompt({ task, topic: "로켓 회수", audience: "중학생과 부모", format: "릴스 37초", channel: "highscoop", referenceText: "공식 자료에 회수 완료라고 적혀 있다.", existingText: "이미 채택한 원고", instruction: "도입만 다듬기" });
 
@@ -39,6 +40,32 @@ describe("SNS writing requests preserve evidence and separate operations", () =>
     expect(snsWritingPrompt({ channel: "fryday" })).toContain("Fryday:");
     expect(snsWritingPrompt({ channel: "custom-channel" })).not.toContain("HighScoop:");
     expect(snsWritingPrompt({ scope: "partial" })).toContain("선택한 필드만");
+  });
+
+  it("carries the user's accepted title pattern and factual guards into new HighScoop title-producing tasks", () => {
+    for (const task of ["reel_script", "carousel_plan"] as const) {
+      for (const channel of ["highscoop", "opportunities", "highway"]) {
+        const prompt = buildSnsEditorialPrompt({ task, channel, topic: "확인한 회수 장면", audience: "부모", format: "카드뉴스", referenceText: "제공된 원문", existingText: "사용자가 고른 제목", instruction: "제목 후보를 비교" });
+        expect(prompt).toContain(HIGHSCOOP_TITLE_PROMPT_VERSION);
+        expect(prompt).toContain("일론머스크의 인형뽑기 클라스");
+        expect(prompt).toContain("우주선과 로켓 부스터");
+        expect(prompt).toContain("접수 종료·결과 발표·사후 홍보를 현재 모집 중인 기회로 바꾸지 않는다");
+        expect(prompt).toContain("사용자가 잠근 제목");
+        expect(prompt).toContain("사용자가 고른 제목");
+        // Reuse the editorial rules, not the old four/eight-card wire contracts.
+        expect(prompt).not.toContain("cover.title");
+        expect(prompt).not.toContain("fields.headline");
+      }
+    }
+  });
+
+  it("does not turn caption, DM or another brand's work into HighScoop cover rewriting", () => {
+    for (const task of ["caption_review", "dm_draft", "humanize", "post_audit"] as const) expect(request(task)).not.toContain(HIGHSCOOP_TITLE_PROMPT_VERSION);
+    for (const channel of ["news", "current-dialogue", "fryday", "custom-channel"]) {
+      const prompt = buildSnsEditorialPrompt({ task: "carousel_plan", channel, topic: "주제", audience: "독자", format: "카드뉴스", referenceText: "자료", existingText: "원고", instruction: "" });
+      expect(prompt).not.toContain(HIGHSCOOP_TITLE_PROMPT_VERSION);
+      expect(prompt).not.toContain("일론머스크의 인형뽑기 클라스");
+    }
   });
 
   it("uses the same voice in actual manual draft and caption requests without including private notes", () => {

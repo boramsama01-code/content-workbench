@@ -1,6 +1,7 @@
 import { WorkspaceSkeleton } from "../WorkspaceSkeleton";
 import { StudioWorkingPreview } from "../StudioWorkingPreview";
 import { SnsWritingWorkbench } from "../SnsWritingWorkbench";
+import { CanvaStudioSync } from "../CanvaStudioSync";
 import { ManualFamilyInitializer } from "../ManualFamilyInitializer";
 import { StudioHistoryEntry } from "../StudioHistoryEntry";
 import { emptyVideoProject } from "@shared/videoProject";
@@ -66,7 +67,7 @@ const activeJob = (j: Job) => ["queued", "running", "processing"].includes(j.sta
 const inputOf = (c: CardInput): CardInput => ({ subcategory: c.subcategory ?? "", finishedDeck:c.finishedDeck??null, altTexts:c.altTexts??[], experience: c.experience ?? null, title: c.title, channel: c.channel, format: c.format, stage: c.stage, dueDate: c.dueDate ?? "", memo: c.memo ?? "", script: c.script ?? "", caption: c.caption ?? "", exportDesign: c.exportDesign ?? "editorial", sourceLabel: c.sourceLabel ?? "", panels: c.panels ?? Array.from({ length: 4 }, () => ({ scene: "", dialogue: "", imageId: null })), characters: c.characters ?? [], imagePath: c.imagePath ?? "" });
 const recoveryContentSchema = studioContentSchema.safeExtend({
   title: z.string(), sourceLabel: z.string(), dueDate: z.string(), memo: z.string(), script: z.string(), caption: z.string(),
-  altTexts: z.array(z.string()).max(10), panels: z.array(studioPanelSchema.safeExtend({ scene: z.string(), dialogue: z.string() })).length(4),
+  altTexts: z.array(z.string()).max(20), panels: z.array(studioPanelSchema.safeExtend({ scene: z.string(), dialogue: z.string() })).length(4),
 });
 const parseRecoveryContent = (value: unknown): CardInput | null => { const parsed = recoveryContentSchema.safeParse(value); return parsed.success ? inputOf(parsed.data) : null; };
 const parseRecoveryText = (value: unknown) => typeof value === "string" ? value : null;
@@ -247,7 +248,7 @@ function NewCard({ channel, stage, initialMode, onClose, initialSubcategory = ""
         <button type="button" disabled={create.isPending} aria-pressed={mode === "finished"} onClick={() => setMode("finished")}><Icon name="design" size={22} /><strong>완성 이미지 가져오기</strong><p>여러 장을 묶어 순서·캡션 확인 후 발행</p></button>
       </div>}
       {workMode === "manual" && route === "writing" && manualChannel && <div className="notice small stack"><strong>가족 대화 8장을 직접 쓰려면</strong><p>제공 자료·근거 구절과 8장 문구를 직접 입력합니다. AI 없이 기존 8장 편집기와 Canva 사본 가져오기로 이어갑니다.</p><button type="button" className="btn" disabled={create.isPending} onClick={() => setManualFamily(true)}>AI 없이 8장 원고 직접 작성</button></div>}
-      <p className="small muted">{mode === "experience" ? "먼저 사진을 모으세요. 제목과 글은 나중에 다듬을 수 있습니다." : mode === "finished" ? "이미지 한 묶음이 게시물 한 건입니다. 1~10장을 가져와 순서를 정하세요." : workMode === "auto" ? "제목을 정하고 편집기를 여세요. 원고·컷 구성 자동 작성 버튼을 눌렀을 때 AI가 시작됩니다." : "직접 원고를 쓰거나 외부에서 만든 초안과 그림을 가져오세요. 입력을 유지한 채 자동으로 돌아갈 수 있습니다."}</p>
+      <p className="small muted">{mode === "experience" ? "먼저 사진을 모으세요. 제목과 글은 나중에 다듬을 수 있습니다." : mode === "finished" ? "이미지 한 묶음이 게시물 한 건입니다. 1~20장을 가져와 순서를 정하세요." : workMode === "auto" ? "제목을 정하고 편집기를 여세요. 원고·컷 구성 자동 작성 버튼을 눌렀을 때 AI가 시작됩니다." : "직접 원고를 쓰거나 외부에서 만든 초안과 그림을 가져오세요. 입력을 유지한 채 자동으로 돌아갈 수 있습니다."}</p>
       <CategorySelect channel={ch} categories={channels.find(c => c.id === ch)?.categories} value={subcategory} onChange={setSubcategory} disabled={create.isPending || !ch} />
       <label className="field">{mode === "experience" ? "작업 제목 (나중에 입력 가능)" : "제목"}<input autoFocus required={mode !== "experience" && route !== "source"} disabled={create.isPending} value={title} maxLength={160} onChange={event => setTitle(event.target.value)} placeholder={mode === "experience" ? "예: 과학관에 다녀온 날" : "어떤 이야기를 만들까요?"} /></label>
       {mode !== "finished" && route !== "source" && <label className="field">형식<select aria-label="제작 형식" value={format} disabled={create.isPending} onChange={event => setFormat(event.target.value as Format)}>{formats.filter(value => !ch || (channels.find(c => c.id === ch)?.profile.formats ?? formats).includes(value)).map(f => <option key={f}>{f}</option>)}</select></label>}
@@ -291,18 +292,28 @@ export function StudioImport() {
 }
 
 function StudioDetail({ id }: { id: number }) {
-  const q = useQuery({ queryKey: ["studio", "card", id], refetchOnWindowFocus: true, refetchOnReconnect: true, queryFn: () => api<Detail>(`/studio/cards/${id}`), refetchInterval: (query) => query.state.data?.jobs.some(activeJob) ? 3000 : false });
+  const detailCache = useQueryClient();
+  const q = useQuery({ queryKey: ["studio", "card", id], refetchOnWindowFocus: true, refetchOnReconnect: true, queryFn: async () => {
+    const received = await api<Detail>(`/studio/cards/${id}`), current = detailCache.getQueryData<Detail>(["studio","card",id]);
+    return current && current.card.version > received.card.version ? current : received;
+  }, refetchInterval: (query) => query.state.data?.jobs.some(activeJob) ? 3000 : false });
+  const guard = useDirtyGuard();
+  const desiredKind = !q.data ? null : q.data.card.format === "릴스" ? "video" : q.data.card.finishedDeck ? "finished" : q.data.card.notionLinkId && q.data.card.channel === "highscoop" ? "notion" : q.data.card.experience ? "experience" : q.data.card.sourceReference && !q.data.card.script && !q.data.card.panels.some(p => p.dialogue || p.scene || p.imageId) && !q.data.card.imagePath ? "source" : "standard";
+  const [shownKind,setShownKind] = useState<typeof desiredKind>(null);
+  const dirty = guard.hasDirty?.() ?? false;
+  useEffect(() => { if (desiredKind && (!shownKind || !dirty)) setShownKind(desiredKind); },[desiredKind,shownKind,dirty]);
   if (q.isLoading) return <Loading lines={5} />;
   if (!q.data) return <ErrorBox error={q.error} retry={() => q.refetch()} />;
   if (q.data.card.trashedAt) return <TrashedStudioDetail card={q.data.card} />;
-  if(q.data.card.notionLinkId&&q.data.card.channel==='highscoop')return <><SourceStudioCard key={q.data.card.id} card={q.data.card}/><SourceBoardNotes card={q.data.card}/></>;
+  const kind = shownKind ?? desiredKind;
   const history = !q.data.card.sourceReference && <StudioHistoryEntry card={q.data.card}/>;
-  if (q.data.card.format === "릴스") return <>{history}<VideoEditor key={q.data.card.id} data={q.data} /></>;
-  if (q.data.card.finishedDeck) return <>{history}<FinishedDeckEditor key={q.data.card.id} data={q.data} /></>;
-  if (q.data.card.experience) return <>{history}<ExperienceEditor key={q.data.card.id} data={q.data} refresh={() => q.refetch()} /></>;
-  if (q.data.card.sourceReference && !q.data.card.script && !q.data.card.panels.some(p => p.dialogue || p.scene || p.imageId) && !q.data.card.imagePath) return <><SourceStudioCard key={q.data.card.id} card={q.data.card} /><SourceBoardNotes card={q.data.card} /></>;
-  // A background polling failure must not unmount the editor and discard unsaved work.
-  return <>{history}{q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}<StudioEditor key={q.data.card.id} data={q.data} refresh={() => q.refetch()} /></>;
+  let editor:ReactNode;
+  if (kind === "notion" || kind === "source") editor = <><SourceStudioCard key={q.data.card.id} card={q.data.card}/><SourceBoardNotes card={q.data.card}/></>;
+  else if (kind === "video") editor = <>{history}<VideoEditor key={q.data.card.id} data={q.data}/></>;
+  else if (kind === "finished") editor = <>{history}<FinishedDeckEditor key={q.data.card.id} data={q.data}/></>;
+  else if (kind === "experience") editor = <>{history}<ExperienceEditor key={q.data.card.id} data={q.data} refresh={() => q.refetch()}/></>;
+  else editor = <>{history}<StudioEditor key={q.data.card.id} data={q.data} refresh={() => q.refetch()}/></>;
+  return <><CanvaStudioSync key={`canva-sync-${id}`} cardId={id} version={q.data.card.version}/>{kind !== desiredKind && <div className="notice warn small" role="status">새 Canva 결과가 다른 편집 형식으로 저장됐습니다. 현재 입력과 편집기는 유지했습니다. <button type="button" className="btn sm" onClick={() => guard.confirmLeave(() => { setShownKind(desiredKind); void q.refetch(); })}>저장·대조 후 최신 결과 열기</button></div>}{q.error && <ErrorBox error={q.error} retry={() => q.refetch()}/>} {editor}</>;
 }
 
 function SourceBoardNotes({ card }: { card: Card }) {

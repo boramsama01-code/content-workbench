@@ -181,6 +181,14 @@ export async function getCanvaLibraryExportJob(db: DB, id: string, options: Canv
   return libraryExportJob(await rest(db, `/exports/${validId(id)}`, options), false, id);
 }
 
+/** Working-copy sync preserves native page geometry and does not use the fixed eight-page master contract. */
+export async function submitCanvaStudioSyncExport(db: DB, id: string, pageCount: number, format: "png" | "pdf", options: CanvaRestOptions = {}): Promise<CanvaRestJob<CanvaExportResult>> {
+  validate(z.number().int().min(1).max(20), pageCount, true);
+  return libraryExportJob(await rest(db, "/exports", options, { method: "POST", json: {
+    design_id: validId(id), format: { type: format, pages: Array.from({ length: pageCount }, (_, i) => i + 1), ...(format === "png" ? { as_single_image: false } : {}) },
+  } }), true);
+}
+
 export async function getCanvaCapabilities(db: DB, options: CanvaRestOptions = {}): Promise<{ capabilities: string[] }> {
   const parsed = z.object({ capabilities: z.array(z.string().max(80).regex(/^[a-z_]+$/)).max(50) }).safeParse(await rest(db, "/users/me/capabilities", options));
   if (!parsed.success) throw new CanvaRestError("Canva 기능 확인 응답이 불완전합니다. 계정의 사용 가능 여부를 단정하지 않았으니 연결 상태를 다시 확인해 주세요.", 502, "invalid_response");

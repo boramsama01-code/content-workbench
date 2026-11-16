@@ -13,6 +13,7 @@ import { opsRoutes } from "./routes/ops";
 import { secretRoutes } from "./routes/secrets";
 import { templateRoutes } from "./routes/templates";
 import { studioRoutes } from "./routes/studio";
+import { codexWriterWorkerRoutes } from "./routes/codexWriter";
 import { collectionRoutes } from "./routes/collection";
 import { canvaEditorialRoutes } from "./routes/canvaEditorial";
 import { canvaTemplateLibraryRoutes } from "./routes/canvaTemplateLibrary";
@@ -58,6 +59,8 @@ export function createApp() {
     );
   } else {
     installAuthRoutes(app);
+    // Local writer requests use a scoped bearer secret, never browser cookies.
+    app.use("/api", codexWriterWorkerRoutes);
     app.use("/api", (req, res, next) => {
       if (!authConfigured() && !demoAllowed()) return res.status(503).json({ error: "운영자 인증이 설정되지 않아 운영 API를 차단했습니다.", code: "auth_not_configured" });
       next();

@@ -843,12 +843,17 @@ itemRoutes.patch("/channels/:cid/media/:mid/alt-text",ah(async(req,res)=>{
 }));
 
 itemRoutes.get("/channels/:cid/media/:mid/deck.zip", ah(async (req, res) => {
+  const expectedRevision = req.query.expectedRevision === undefined ? undefined : parse(z.coerce.number().int().positive(), req.query.expectedRevision);
   const ch = await loadChannel(req.params.cid);
   const [cover] = await getDb().select().from(mediaAssets).where(and(eq(mediaAssets.id, intParam(req.params.mid)), eq(mediaAssets.channelId, ch.id), eq(mediaAssets.kind, "card")));
   if (!cover) throw new HttpError(404, "카드뉴스를 찾을 수 없습니다.");
   const pages = await loadCardPages(getDb(), cover);
   const [revision] = await getDb().select().from(contentRevisions).where(eq(contentRevisions.id, cover.revisionId));
   const [item] = await getDb().select().from(contentItems).where(eq(contentItems.id, cover.contentItemId));
+  const assertExpectedRevision = (currentRevision: number | null | undefined) => {
+    if (expectedRevision !== undefined && (cover.revisionId !== expectedRevision || currentRevision !== expectedRevision)) throw new HttpError(409, "연결된 원고가 바뀌었습니다. 최신 카드뉴스를 확인한 뒤 내려받으세요.");
+  };
+  assertExpectedRevision(item?.currentRevisionId);
   const primary = await itemPrimarySource(getDb(), item);
   const captions = item.publicationDraft?.captions ?? buildCaptions({ kind: item.kind, payload: revision.payload, sourceOrg: await sourceOrgFor(getDb(), item, revision.payload), sourceUrl: primary?.originalUrl ?? null });
   const files = pages.map((page, i) => ({ name: `page-${String(i + 1).padStart(2, "0")}.jpg`, bytes: page.bytes }));
@@ -856,6 +861,10 @@ itemRoutes.get("/channels/:cid/media/:mid/deck.zip", ah(async (req, res) => {
   const invalidPage = descriptions.findIndex(value => !!altTextError(value));
   if (invalidPage >= 0) throw new HttpError(400, `${invalidPage + 1}페이지: ${altTextError(descriptions[invalidPage])} 대체텍스트를 수정한 후 내려받으세요.`);
   files.push({name:"alt-text.txt",bytes:Buffer.from(altTextFile(descriptions))},{ name: "caption.txt", bytes: Buffer.from(captions.instagram) }, { name: "credits.txt", bytes: Buffer.from(cover.carousel?.cover.credit ?? "출처는 각 카드 하단을 확인하세요.") });
+  if (expectedRevision !== undefined) {
+    const [latest] = await getDb().select({ revision: contentItems.currentRevisionId }).from(contentItems).where(eq(contentItems.id, cover.contentItemId));
+    assertExpectedRevision(latest?.revision);
+  }
   res.type("application/zip").set("Content-Disposition", `attachment; filename="cardnews-${cover.contentItemId}-r${cover.revisionId}.zip"`).send(zipFiles(files));
 }));
 

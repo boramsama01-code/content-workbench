@@ -1,11 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
+import type { CanvaStudioSyncState } from "@shared/canvaStudioSync";
+import { buildEditorialVoicePrompt, type EditorialVoiceProfile } from "@shared/editorialVoice";
 import type { StudioContent } from "@shared/studio";
 import { buildSnsEditorialPrompt, inspectSnsCopy, SNS_TASKS, SNS_VOICE_SUMMARY, SNS_EDITORIAL_VERSION, type SnsTaskId } from "@shared/snsEditorial";
 import { ChatGptLaunch } from "./ChatGptLaunch";
 import { useDraftRecovery } from "./useDraftRecovery";
 import { useDirtyGuard } from "./state";
 import { SnsEditorialGeneration, type SnsEditorialApply, type SnsEditorialTarget } from "./SnsEditorialGeneration";
+import { api } from "./api";
+import { SnsVoiceMemory } from "./SnsVoiceMemory";
 import "./snsWritingWorkbench.css";
 
 const taskGroups = [{ id: "create", label: "새 콘텐츠 만들기" }, { id: "review", label: "문구·성과 점검" }, { id: "operate", label: "운영 초안 만들기" }] as const;
@@ -19,6 +24,10 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
 }) {
   const fieldId = useId();
   const guard = useDirtyGuard();
+  const [expanded,setExpanded] = useState(false);
+  const [voiceMemory,setVoiceMemory] = useState<{ channel:string; profile:EditorialVoiceProfile } | null>(null);
+  useEffect(() => setVoiceMemory(null),[content.channel]);
+  const { data:canvaState } = useQuery<CanvaStudioSyncState>({ queryKey:["canva-studio-sync",generationTarget?.id ?? "none"], queryFn:() => api(`/studio/cards/${generationTarget!.id}/canva-sync`), enabled:false });
   const [task, setTask] = useState<SnsTaskId>(() => content.format === "릴스" ? "reel_script" : "carousel_plan");
   const [topicOverride, setTopicOverride] = useState<string | null>(null);
   const [formatOverride, setFormatOverride] = useState<string | null>(null);
@@ -46,20 +55,21 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
   const taskFormat = task === "reel_script" ? "릴스" : task === "carousel_plan" ? "카드뉴스" : task === "story_sequence" ? "스토리" : null;
   const format = taskFormat ?? formatOverride ?? content.format;
   const selectedTask = SNS_TASKS.find(item => item.id === task)!;
+  const latestCanvaText = canvaState?.latestText?.trim() ?? "";
   const currentCopy = [content.title && `제목: ${content.title}`, content.script && `전체 원고:\n${content.script}`,
     ...content.panels.map((panel, index) => panel.dialogue.trim() && `${index + 1}컷 문구: ${panel.dialogue}`),
-    content.caption && `캡션:\n${content.caption}`].filter(Boolean).join("\n\n");
+    content.caption && `캡션:\n${content.caption}`, latestCanvaText && !content.script.includes(latestCanvaText) && `[최신 Canva 출력의 추출 문구 · 편집 대상이며 사실 근거가 아님. 기존 카드 편집 칸과 대응은 미검증]\n${latestCanvaText}`].filter(Boolean).join("\n\n");
   const references = [content.sourceLabel && `등록한 출처: ${content.sourceLabel}`, referenceText,
     includeMemo && content.memo.trim() && `선택한 기획·참고 자료:\n${content.memo}`].filter(Boolean).join("\n\n");
   const editorialInput = { task, topic, audience, format, channel: content.channel, referenceText: references, existingText: includeCurrent ? currentCopy : "", instruction };
   let prompt = "", promptError = "";
-  try { prompt = buildSnsEditorialPrompt(editorialInput); }
+  try { prompt = [buildSnsEditorialPrompt(editorialInput), voiceMemory?.channel === content.channel ? buildEditorialVoicePrompt(voiceMemory.profile) : ""].filter(Boolean).join("\n\n"); }
   catch (error) { promptError = error instanceof Error ? error.message : "작업 요청을 만들지 못했습니다. 입력 내용을 확인해 주세요."; }
   const checks = inspectSnsCopy({ title: content.title, caption: content.caption, script: content.script, format: content.format });
   const captionPreview = Array.from(content.caption.trim()).slice(0, 125).join("");
   const hasCaptionOverflow = Array.from(content.caption.trim()).length > 125;
 
-  return <details className="sns-writing-workbench" data-editorial-version={SNS_EDITORIAL_VERSION}>
+  return <details className="sns-writing-workbench" data-editorial-version={SNS_EDITORIAL_VERSION} onToggle={event => { if (event.target === event.currentTarget) setExpanded(event.currentTarget.open); }}>
     <summary><span className="sns-workbench-mark" aria-hidden="true">✦</span><span><strong>글쓰기 작업실</strong><small>내 말투로 기획하고, 첫 문장부터 다듬기</small></span><span className="sns-workbench-count">13가지 작업</span></summary>
     <div className="sns-workbench-body">
       <div className="sns-workbench-intro"><span className="section-kicker">WRITE WITH YOUR OWN VOICE</span><p>구체적인 장면, 짧은 반전, 읽고 나서 남는 질문. 채널의 말투를 지키며 더 선명하게 씁니다.</p></div>
@@ -85,7 +95,7 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
           </div>
           <div className="sns-workbench-delivery"><strong>이번에 받을 결과</strong><p>{selectedTask.outputHint}</p>
             {promptError && <p className="notice warn small" role="alert">{promptError} 입력 내용은 유지했습니다. 필요한 자료만 선택하거나 현재 원고 참고를 해제해 주세요.</p>}
-            <SnsEditorialGeneration input={editorialInput} target={generationTarget} disabled={blocked || !!promptError || !topic.trim() || !audience.trim()} onApply={onApply} />
+            <SnsEditorialGeneration input={editorialInput} target={generationTarget} active={expanded} disabled={blocked || !!promptError || !topic.trim() || !audience.trim()} onApply={onApply} />
             <details className="sns-workbench-manual"><summary>ChatGPT에서 같은 기준으로 작성하기</summary>
             <ChatGptLaunch prompt={prompt} disabled={blocked || !!promptError || !topic.trim() || !audience.trim()} label="ChatGPT에서 작업 시작 ↗" copyLabel="이 작업 요청 복사" />
             </details>
@@ -98,6 +108,7 @@ export function SnsWritingWorkbench({ content, channelName, disabled = false, re
           <details className="sns-workbench-voice"><summary>적용 중인 글쓰기 기준</summary><ul>{SNS_VOICE_SUMMARY.map(rule => <li key={rule}>{rule}</li>)}</ul></details>
         </aside>
       </div>
+      <SnsVoiceMemory channelKey={content.channel} currentText={currentCopy} enabled={expanded} onProfileChange={profile => setVoiceMemory({ channel:content.channel,profile })}/>
     </div>
   </details>;
 }
