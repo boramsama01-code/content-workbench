@@ -22,6 +22,15 @@ async function click(label: string) { expect(button(label).disabled).toBe(false)
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
 describe("in-app SNS writing proposals", () => {
+  it("keeps caption opening variants as copy choices instead of offering to overwrite the title", async () => {
+    mocks.api.mockResolvedValue({ ...proposal(), task: "caption_review" });
+    await render({ ...input(), task: "caption_review" });
+    await click("스튜디오에서 제안 받기");
+    expect([...host.querySelectorAll("button")].some(node => node.textContent === "제목에 반영")).toBe(false);
+    expect(button("이 훅 복사").disabled).toBe(false);
+    expect(button("캡션에 반영").disabled).toBe(false);
+    expect(mocks.apply).not.toHaveBeenCalled();
+  });
   it("deduplicates a double click and applies only after the operator chooses a specific result", async () => {
     const pending = deferred<SnsEditorialDraftReply>(); mocks.api.mockReturnValue(pending.promise);
     await render(); expect(mocks.api).not.toHaveBeenCalled();

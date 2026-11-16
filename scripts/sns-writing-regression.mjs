@@ -67,6 +67,7 @@ try {
     await desk.getByRole("button", { name: "스튜디오에서 제안 받기", exact: true }).click();
     await desk.getByRole("region", { name: "글쓰기 제안 결과" }).waitFor();
     assert.equal(await desk.locator(".sns-result-hooks article").count(), 3);
+    assert.equal(await desk.getByRole("button", { name: "제목에 반영", exact: true }).count(), 0, "caption openings are not cover-title candidates");
     await desk.getByLabel("더 다듬고 싶은 점", { exact: true }).fill("입력 변경 후 예전 결과를 덮어쓰지 않습니다.");
     assert.equal(await desk.getByRole("button", { name: "캡션에 반영", exact: true }).isDisabled(), true);
     const layout = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));

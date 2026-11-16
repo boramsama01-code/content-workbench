@@ -30,7 +30,7 @@ const outputJsonSchema = {
 export async function generateSnsEditorialDraft(input: Omit<SnsEditorialDraftRequest, "version" | "requestId" | "provider"> & {
   channel: string; provider: AiProvider; model: string; brandGuide?: string; signal?: AbortSignal;
 }) {
-  const system = `${snsWritingPrompt({ channel: input.channel, format: input.format })}
+  const system = `${snsWritingPrompt({ channel: input.channel, format: input.format, scope: input.task === "caption_review" ? "caption" : input.task.endsWith("audit") ? "review" : "draft" })}
 선택한 SNS 작업을 한국어로 작성하고 정해진 JSON 결과만 반환한다.
 hooks에는 작업에 필요한 서로 다른 도입 후보와 각도·추천 이유를 최대 3개 넣는다. 댓글·DM·성과 점검처럼 도입 후보가 불필요하면 빈 배열을 쓴다.
 sections에는 작업별 기획·장별 문구·시간대별 대본·답글 또는 분석을 label과 text로 나눠 최대 20개 넣는다.

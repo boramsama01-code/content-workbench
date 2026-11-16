@@ -18,6 +18,7 @@ describe("SNS writing requests preserve evidence and separate operations", () =>
       expect(prompt).toContain("공식 자료에 회수 완료라고 적혀 있다.");
     }
     expect(request("reel_script")).toContain("시간대별 화면·내레이션·자막");
+    expect(request("caption_review")).toContain("이번 범위는 캡션만");
     expect(request("post_audit")).toContain("광고 여부·형식·영상 길이·게시 후 경과 시간");
     expect(request("trend_research")).toContain("조사 대기");
     for (const task of ["comment_draft", "reply_draft", "dm_draft"] as const) expect(request(task)).toContain("외부 게시·댓글·DM 전송은 실행하지 않는다");

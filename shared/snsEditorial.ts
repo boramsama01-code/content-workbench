@@ -100,7 +100,7 @@ export function buildSnsEditorialPrompt(input: SnsEditorialInput): string {
   const data = JSON.stringify({ topic: input.topic, audience: input.audience, format: input.format,
     channel: input.channel, references: input.referenceText, currentCopy: input.existingText, editRequest: input.instruction }, null, 2)
     .replace(/</g, "‹").replace(/>/g, "›");
-  return [snsWritingPrompt({ channel: input.channel, format: input.format, scope: input.task.endsWith("audit") ? "review" : "draft" }),
+  return [snsWritingPrompt({ channel: input.channel, format: input.format, scope: input.task === "caption_review" ? "caption" : input.task.endsWith("audit") ? "review" : "draft" }),
     `[선택 작업: ${task.label}]\n${TASK_RULES[input.task]}\n결과 구성: ${task.outputHint}`,
     "[작업 순서]\n자료에서 확인된 핵심과 독자가 얻을 내용을 잡는다 → 해당 작업을 작성한다 → 사실·문체·제목의 약속을 대조한다 → 공개용 최종 문구와 편집자용 설명을 분리한다. 자료 부족으로 핵심을 확인할 수 없으면 필요한 근거를 구체적으로 적고 가짜 완성본을 만들지 않는다. 외부 게시·댓글·DM 전송은 실행하지 않는다.",
     `[입력 데이터]\n${data}`,
