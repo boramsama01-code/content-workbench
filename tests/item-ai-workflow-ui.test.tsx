@@ -118,6 +118,23 @@ const writes = () => mocks.api.mock.calls.filter(([, options]) => options?.metho
 const generateRequests = () => writes().filter(([path]) => path === `${itemPath}/generate`);
 
 describe("source workspace role models and partial generation recovery", () => {
+  it("defaults new HighScoop news to the news design without preloading a nonexistent draft or creating a second image", async () => {
+    detail.current = null;
+    detail.item = { ...detail.item, currentRevisionId: null, kind: "current_dialogue", subcategory: "뉴스" };
+    generate = async () => {
+      detail.item = { ...detail.item, version: 2, currentRevisionId: 5 };
+      detail.current = { id: 5, revisionNo: 1, author: "llm", payload: {} };
+      familyDraft();
+      return structuredClone(detail.item);
+    };
+    await render();
+    expect(mocks.api.mock.calls.some(([path]) => path === `${itemPath}/card-copy`)).toBe(false);
+    await click("원고·이미지 자동 만들기");
+    expect(generateRequests()[0][1].body).toMatchObject({ version: 1, templateKey: "set:n03" });
+    expect(writes().map(([path]) => path)).toEqual([`${itemPath}/generate`]);
+    expect(detail.current.payload.cardCopy.version).toBe(2);
+  });
+
   it("uses the content channel's summary role and shows independent models, ignoring the globally selected writer and channel", async () => {
     await render();
     expect(summaryProvider().value).toBe("gemini");

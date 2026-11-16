@@ -1,5 +1,6 @@
 import { AiCapacityPanel } from "../AiCapacityPanel";
-import { contentTemplateForItem } from "@shared/channelEditorial";
+import { contentTemplateForItem, isNewsContentKind } from "@shared/channelEditorial";
+import { supportsHighscoopNews, isHighscoopNewsCategory } from "@shared/channelContentMode";
 import { sourceImageRequestLimit } from "@shared/aiCapacity";
 import { CanvaEditorial } from "../CanvaEditorial";
 import { CanvaStudioSync } from "../CanvaStudioSync";
@@ -513,11 +514,12 @@ export function EditPanel({ d, cid, templateKey, onTemplateChange, onDirtyChange
   const [partialGeneration, setPartialGeneration] = useState<{ version: number; warnings: string[] } | null>(null);
   const workflowWarnings = workflow?.warnings.length ? workflow.warnings : partialGeneration && partialGeneration.version >= d.item.version ? partialGeneration.warnings : [];
   const templates = useTemplates(cid);
-  const storedCopy = useQuery({ queryKey: ["card-copy", cid, d.item.id], queryFn: () => api<StoredCardCopyResponse>(`/channels/${cid}/items/${d.item.id}/card-copy`), retry: false });
+  const storedCopy = useQuery({ queryKey: ["card-copy", cid, d.item.id], queryFn: () => api<StoredCardCopyResponse>(`/channels/${cid}/items/${d.item.id}/card-copy`), retry: false, enabled: !!d.current });
   const [localTemplate, setLocalTemplate] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
-  const preferredTemplate = contentTemplateForItem(aiChannel ?? {cardTemplate:templates.data?.current ?? "editorial:red"}, {...d.item,cardCopy:storedCopy.data?.hasSavedCopy ? storedCopy.data.copy : d.current?.payload.cardCopy}, templateKey ?? localTemplate);
-  const draftTemplate = !d.current && !templateKey && !localTemplate && !isCurrentEditorialTemplate(preferredTemplate) ? templates.data?.items.find(item=>isCurrentEditorialTemplate(item.key))?.key??"editorial:red" : preferredTemplate;
+  const preferredTemplate = contentTemplateForItem(aiChannel ?? {cardTemplate:templates.data?.current ?? "editorial:red"}, {...d.item,cardCopy:storedCopy.data?.version === d.item.version && storedCopy.data.hasSavedCopy ? storedCopy.data.copy : d.current?.payload.cardCopy}, templateKey ?? localTemplate);
+  const newsDraft = !!aiChannel && supportsHighscoopNews(aiChannel) && (isNewsContentKind(d.item.kind) || isHighscoopNewsCategory(aiChannel, d.item.subcategory));
+  const draftTemplate = !newsDraft && !d.current && !templateKey && !localTemplate && !isCurrentEditorialTemplate(preferredTemplate) ? templates.data?.items.find(item=>isCurrentEditorialTemplate(item.key))?.key??"editorial:red" : preferredTemplate;
   const sourceReady = !d.primary || (d.primary.fetchStatus === "ok" && !!d.primary.fetchedText?.trim());
   const generation = useGenerationRequest(cid, d.item.id, "draft");
   const [generationStep, setGenerationStep] = useState<"draft" | "image" | null>(null);
@@ -790,10 +792,12 @@ function CardApprovePanel({ d, cid, sourceDirty = false, templateChoice, onTempl
   useEffect(() => { if (captionDraft.recovery.pending) setPublishOpen(true); }, [captionDraft.recovery.pending]);
   const [confirmed, setConfirmed] = useState(false);
   const tpls = useTemplates(cid);
-  const storedCopy = useQuery({ queryKey: ["card-copy", cid, d.item.id], queryFn: () => api<StoredCardCopyResponse>(`/channels/${cid}/items/${d.item.id}/card-copy`), retry: false });
+  const storedCopy = useQuery({ queryKey: ["card-copy", cid, d.item.id], queryFn: () => api<StoredCardCopyResponse>(`/channels/${cid}/items/${d.item.id}/card-copy`), retry: false, enabled: !!d.current });
   const [tpl, setTpl] = useState<string | null>(null);
   const {allChannels: templateChannels} = useChannel();
-  const templateKey = contentTemplateForItem(templateChannels.find(channel=>channel.id===cid) ?? {cardTemplate:tpls.data?.current ?? "editorial:red"}, {...d.item,cardCopy:storedCopy.data?.hasSavedCopy ? storedCopy.data.copy : d.current?.payload.cardCopy}, templateChoice ?? tpl ?? currentCard?.templateKey);
+  // Render with the compatible copy returned by the editor, including partial
+  // legacy drafts. Only source generation applies the new-news default.
+  const templateKey = contentTemplateForItem(templateChannels.find(channel=>channel.id===cid) ?? {cardTemplate:tpls.data?.current ?? "editorial:red"}, {...d.item,cardCopy:storedCopy.data?.version === d.item.version ? storedCopy.data.copy : d.current?.payload.cardCopy}, templateChoice ?? tpl ?? currentCard?.templateKey);
   const templateKeyRef = useRef(templateKey); templateKeyRef.current = templateKey;
   const chooseTemplate = (key: string) => { setTpl(key); onTemplateChange?.(key); };
   const typographyOnly = templateKey.startsWith("set:") && !collectionUsesArt(templateKey.slice(4));
