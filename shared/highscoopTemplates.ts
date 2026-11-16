@@ -13,7 +13,7 @@ const CANVA_MASTERS:Record<string,{id:string;url:string}>={
  conversation:{id:'DAHbDfF3idM',url:'https://www.canva.com/d/o2ydOuJHGlpIX22'},
  news:{id:'DAHbDd_IoXA',url:'https://www.canva.com/d/qm9s6tmFklAtAo0'},
 };
-const make=(slug:string,category:string,color:string,soft:string,accent:string):HighScoopTemplateKit=>({key:`highscoop:${slug}`,category,label:category,color,soft,accent,canvaDesignId:CANVA_MASTERS[slug]?.id??null,canvaEditUrl:CANVA_MASTERS[slug]?.url??null,thumbnailUrl:`/highscoop/current/${slug}-cover.webp`,overviewUrl:`/highscoop/current/${slug}-overview.webp`,pageCount:11,layoutLabels:HIGH_SCOOP_LAYOUT_LABELS});
+const make=(slug:string,category:string,color:string,soft:string,accent:string):HighScoopTemplateKit=>({key:`highscoop:${slug}`,category,label:category,color,soft,accent,canvaDesignId:CANVA_MASTERS[slug]?.id??null,canvaEditUrl:CANVA_MASTERS[slug]?.url??null,thumbnailUrl:`/highscoop/current/${slug}-cover.webp`,overviewUrl:`/highscoop/current/${slug}-overview.webp?v=${HIGH_SCOOP_TEMPLATE_VERSION}`,pageCount:11,layoutLabels:HIGH_SCOOP_LAYOUT_LABELS});
 export const HIGH_SCOOP_TEMPLATE_KITS:readonly HighScoopTemplateKit[]=[
  make('gifted','영재원','#FF493B','#FFF2F0','#A42C24'),
  make('experience','체험','#5ED7B5','#EDF9F5','#116E55'),
