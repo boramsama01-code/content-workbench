@@ -27,14 +27,16 @@ describe("native eight-page template previews", () => {
       ["cardnews14-amber-cream-v1", 7],
       ["reading-ink-lime-v1", 0],
       ["reading-cobalt-paper-v1", 7],
+      ["set:r02", 5],
     ] as const) {
       const image = await renderPreview(db, key, channel, page);
       expect(await sharp(image).metadata()).toMatchObject({ format: "jpeg", width: 1080, height: 1350, channels: 3 });
     }
   });
 
-  it("rejects a sixth collection preview, a ninth reading preview and a second custom-layout preview", async () => {
-    await expect(renderPreview(db, "set:r02", channel, 5)).rejects.toBeInstanceOf(TemplatePreviewPageError);
+  it("rejects pages after the common closing and preserves other-brand preview bounds", async () => {
+    await expect(renderPreview(db, "set:r02", channel, 6)).rejects.toBeInstanceOf(TemplatePreviewPageError);
+    await expect(renderPreview(db, "set:r02", {...channel,name:"Alligodang",slug:"news"}, 5)).rejects.toBeInstanceOf(TemplatePreviewPageError);
     await expect(renderPreview(db, "cardnews14-cinematic-v1", channel, 8)).rejects.toBeInstanceOf(TemplatePreviewPageError);
     await expect(renderPreview(db, "builtin:classic", channel, 1)).rejects.toBeInstanceOf(TemplatePreviewPageError);
   });
