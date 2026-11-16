@@ -83,8 +83,20 @@ import { restoreSourceRevision } from "../services/sourceRevisionRestore";
 import { organizePublicationsSchema, publicationListStates } from "../../shared/publicationList";
 import { organizePublications, publicationListCondition } from "../services/publicationList";
 import { env } from "../env";
+import {noticeBundleRequestSchema} from '../../shared/noticeBundle';
+import {createNoticeBundle,noticeBundleJob} from '../services/noticeBundle';
+import {kickNoticeBundles} from '../worker/noticeBundle';
 
 export const itemRoutes = Router();
+
+itemRoutes.post('/channels/:cid/notice-bundles',ah(async(req,res)=>{
+ const ch=await loadChannel(req.params.cid),body=parse(noticeBundleRequestSchema,req.body),db=getDb();
+ const result=await createNoticeBundle(db,ch.id,body,actorOf(req));kickNoticeBundles(db);res.status(202).json(result);
+}));
+itemRoutes.get('/channels/:cid/notice-bundles/:jobId',ah(async(req,res)=>{
+ const ch=await loadChannel(req.params.cid),db=getDb();
+ const result=await noticeBundleJob(db,ch.id,intParam(req.params.jobId));kickNoticeBundles(db);res.json(result);
+}));
 
 const listQuery = z.object({
   channelId: z.union([z.literal("all"), z.coerce.number().int().positive()]),
@@ -345,6 +357,9 @@ itemRoutes.patch(
         const { cardCopy: _unownedCopy, ...ownedFields } = payload;
         payload = ownedFields;
         const [previous] = fresh.currentRevisionId ? await tx.select({ payload: contentRevisions.payload }).from(contentRevisions).where(eq(contentRevisions.id, fresh.currentRevisionId)) : [];
+        // A normal source-field save cannot erase or replace the server's
+        // institution-by-institution source snapshots and document evidence.
+        if(previous?.payload.noticeBundle)payload.noticeBundle=previous.payload.noticeBundle;
         const savedCopy = storedCardCopySchema.safeParse(previous?.payload.cardCopy);
         if (savedCopy.success) payload = { ...payload, cardCopy: savedCopy.data };
         if (savedCopy.success && savedCopy.data.version === 2) {

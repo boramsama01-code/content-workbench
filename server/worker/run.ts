@@ -17,6 +17,7 @@ import { withGenerationContext } from "../services/generationContext";
 import { autoCollectEnabled } from "../services/autoCollection";
 import { syncNotionOnce } from './notion';
 import { saveNotionCanvaOnce } from './notionCanva';
+import {NOTICE_BUNDLE_JOB,processNoticeBundleJob} from '../services/noticeBundle';
 
 export { autoCollectEnabled } from "../services/autoCollection";
 
@@ -115,7 +116,7 @@ export async function jobsOnce(opts: { maxMs?: number; types?: string[] } = {}) 
   const notion = await syncNotionOnce(db,{maxMs:Math.min(120_000,Math.max(0,deadline-Date.now()))});
   if(notion.checked||notion.failed)notes.push(`Notion: ${JSON.stringify(notion)}`);
   while (Date.now() < deadline) {
-    const job = await claimJob(db, workerId, opts.types ?? ["collect", "publish", "studio_generate"]);
+    const job = await claimJob(db, workerId, opts.types ?? ["collect", "publish", "studio_generate",NOTICE_BUNDLE_JOB]);
     if (!job) break;
     processed++;
     try {
@@ -123,6 +124,8 @@ export async function jobsOnce(opts: { maxMs?: number; types?: string[] } = {}) 
         if (!(await processCollectJob(db, job, workerId))) failed++;
       } else if (job.type === "studio_generate") {
         if (!(await processStudioJob(db, job, workerId))) failed++;
+      } else if (job.type === NOTICE_BUNDLE_JOB) {
+        if (!(await processNoticeBundleJob(db,job,workerId))) failed++;
       } else if (job.type === "publish") {
         const s = await publishDue(db, {});
         await completeJob(db, job.id, workerId, s as unknown as Record<string, unknown>);

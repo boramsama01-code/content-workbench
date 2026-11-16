@@ -7,8 +7,10 @@ import { articleAccessProblem, articleHeadlines, articleHeadlineKey, decodeGoogl
 import { resolveGoogleNewsArticle } from "./googleNewsResolve";
 import { decodePublicText, isPublicHtmlResponse } from "./publicTextResponse";
 import { currentGenerationSignal } from "./generationContext";
+import {GED_PDF_LIMITS,gedNoticeAttachments,isGedNoticePage} from './gedAttachments';
+import type {SourceAttachment} from '../../shared/sourceAttachment';
 
-export type Attachment = { url: string; name: string; kind: string; status: string; reason?: string };
+export type Attachment = SourceAttachment;
 export type ExtractResult =
   | { ok: true; finalUrl: string; title: string; text: string; hash: string; attachments: Attachment[]; contentKind: "html" | "pdf" }
   | { ok: false; status: "failed" | "unsupported" | "blocked"; error: string; attachments?: Attachment[]; finalUrl?: string };
@@ -47,6 +49,9 @@ export function extractHtml(html: string, baseUrl: string, context: ArticleConte
   if (isGoogleNewsUrl(baseUrl) || articleAccessProblem(html, baseUrl)) return { title, text: "", attachments };
   $("a[href]").each((_, a) => {
     const href = $(a).attr("href") || "", name = $(a).text().trim().slice(0, 200);
+    // A named PDF whose href is only an anchor is not a file URL. GED and
+    // supported onclick handlers are resolved separately from literal args.
+    if(!href||/^\s*(?:#|javascript:|data:)/i.test(href))return;
     const kind = classifyAttachment(href, name);
     if (!kind) return;
     let abs: string;
@@ -59,6 +64,7 @@ export function extractHtml(html: string, baseUrl: string, context: ArticleConte
   // MCST's public download handler uses these literal arguments. Parse them;
   // never execute site JavaScript or mistake the HTML preview for the PDF.
   const base = new URL(baseUrl);
+  if(isGedNoticePage(baseUrl))attachments.push(...gedNoticeAttachments(html,baseUrl));
   if (base.hostname.replace(/^www\./, "") === "mcst.go.kr" && /\/s_notice\/press\/pressView\.jsp$/.test(base.pathname)) {
     $('a[onclick*="file_download("]').each((_, a) => {
       const args = ($(a).attr("onclick") || "").match(/file_download\(\s*'([^']+)'\s*,\s*'([\w.-]+\.pdf)'\s*,\s*'(\d+)'\s*(?:,\s*'(\d*)'\s*)?\)/i);
@@ -109,8 +115,83 @@ export function extractHtml(html: string, baseUrl: string, context: ArticleConte
 
 export async function extractPdf(buf: Buffer): Promise<string> {
   const pdf = await getDocumentProxy(new Uint8Array(buf));
-  const { text } = await extractText(pdf, { mergePages: true });
-  return (Array.isArray(text) ? text.join("\n") : text).replace(/[ \t]+/g, " ").trim().slice(0, MAX_TEXT);
+  try{
+    const { text } = await extractText(pdf, { mergePages: true });
+    return (Array.isArray(text) ? text.join("\n") : text).replace(/[ \t]+/g, " ").trim().slice(0, MAX_TEXT);
+  }finally{await (pdf as unknown as {destroy?:()=>Promise<void>}).destroy?.();}
+}
+
+/** Page-bound source proof for GED notices. Ordinary extraction keeps its
+ * existing 20k contract; the dedicated notice workflow has an explicit cap. */
+export async function extractPdfPages(buf:Buffer,maxText:number=GED_PDF_LIMITS.text) {
+  const pdf=await getDocumentProxy(new Uint8Array(buf));
+  try{
+    if(!Number.isInteger(pdf.numPages)||pdf.numPages<1||pdf.numPages>GED_PDF_LIMITS.pages)throw new Error(`PDF가 자동 읽기 한도(${GED_PDF_LIMITS.pages}쪽)를 넘거나 페이지를 확인할 수 없습니다.`);
+    const {text}=await extractText(pdf,{mergePages:false});
+    const raw=Array.isArray(text)?text:[text];
+    if(raw.length!==pdf.numPages)throw new Error('PDF 페이지와 추출된 텍스트 수가 다릅니다.');
+    let remaining=Math.max(0,Math.min(GED_PDF_LIMITS.text,maxText)),truncated=false;
+    const unreadablePages:number[]=[],pages:Array<{page:number;text:string}>=[];
+    raw.forEach((value,index)=>{
+      const normalized=value.replace(/[ \t]+/g,' ').trim();
+      if(!normalized)unreadablePages.push(index+1);
+      const selected=normalized.slice(0,remaining);
+      if(selected.length<normalized.length)truncated=true;
+      if(selected||!normalized)pages.push({page:index+1,text:selected});
+      remaining-=selected.length;
+    });
+    return {pages,pageCount:pdf.numPages,truncated,unreadablePages};
+  }finally{await (pdf as unknown as {destroy?:()=>Promise<void>}).destroy?.();}
+}
+
+async function readGedNotice(attachments:Attachment[],finalUrl:string,title:string,fetchImpl:typeof safeFetch,context:ArticleContext,deadline:number):Promise<ExtractResult> {
+  const parts:string[]=[];let length=0,downloads=0;
+  const markPending=(reason:string)=>attachments.filter(item=>item.kind==='pdf'&&item.status==='pending').forEach(item=>{item.reason=reason;});
+  for(const attachment of attachments){
+    if(attachment.kind!=='pdf'||attachment.status!=='pending')continue;
+    if(downloads>=GED_PDF_LIMITS.files){markPending(`PDF ${GED_PDF_LIMITS.files}개 자동 읽기 한도에 도달했습니다. 나머지는 원본 확인이 필요합니다.`);break;}
+    if(GED_PDF_LIMITS.text-length<512){markPending('첨부 전체의 텍스트 한도에 도달했습니다. 나머지는 원본 확인이 필요합니다.');break;}
+    const remaining=deadline-Date.now();
+    if(remaining<=0){markPending('원문 확인 시간 한도에 도달했습니다. 다시 확보하거나 원본을 확인해 주세요.');break;}
+    if(context.takeExtraCall&&!context.takeExtraCall()){markPending('이번 수집의 원문 호출 한도에 도달했습니다. 다시 확보하거나 원본을 확인해 주세요.');break;}
+    currentGenerationSignal()?.throwIfAborted();downloads++;
+    try{
+      const document=await fetchImpl(attachment.url,{allowedHosts:['ged.kedi.re.kr'],maxBytes:GED_PDF_LIMITS.bytes,timeoutMs:Math.min(12_000,remaining),accept:'application/pdf'});
+      if(new URL(document.finalUrl).hostname!=='ged.kedi.re.kr'||document.body.subarray(0,5).toString()!=='%PDF-')throw new Error('GED 공식 PDF 응답이 아닙니다. 로그인·오류 페이지를 원문으로 사용하지 않았습니다.');
+      if(document.body.length>GED_PDF_LIMITS.bytes)throw new Error('PDF가 자동 읽기 크기 한도를 넘습니다.');
+      const proof=await extractPdfPages(document.body,GED_PDF_LIMITS.text-length);
+      currentGenerationSignal()?.throwIfAborted();
+      if(Date.now()>=deadline)throw new Error('첨부 PDF 확인 시간 한도를 초과했습니다. 다시 확보해 주세요.');
+      attachment.pdfSha256=sha256(document.body);attachment.pageCount=proof.pageCount;
+      attachment.unreadablePages=proof.unreadablePages;attachment.truncated=proof.truncated;
+      const selected:Array<{page:number;text:string}>=[];
+      for(const page of proof.pages){
+        if(!page.text){selected.push(page);continue;}
+        const heading=`[첨부 PDF: ${attachment.name} · ${page.page}쪽]\n`,separator=parts.length?2:0;
+        const available=Math.max(0,GED_PDF_LIMITS.text-length-heading.length-separator);
+        const content=page.text.slice(0,available);
+        if(content.length<page.text.length)attachment.truncated=true;
+        if(!content)break;
+        const part=heading+content;parts.push(part);length+=part.length+separator;
+        selected.push({page:page.page,text:content});
+      }
+      attachment.pages=selected;
+      const extracted=selected.map(page=>page.text).join('\n');
+      attachment.textSha256=sha256(extracted);
+      if(extracted.trim().length<50){attachment.status='manual_check';attachment.reason='텍스트가 없는 PDF 또는 스캔본일 수 있습니다. 이미지 문자는 자동 확인으로 처리하지 않았습니다.';}
+      else{
+        attachment.status='ok';delete attachment.reason;
+        const issues=[...(attachment.truncated?['텍스트 한도로 PDF 일부만 읽었습니다.']:[]),...(proof.unreadablePages.length?[`${proof.unreadablePages.join(', ')}쪽은 텍스트를 읽지 못해 원본 확인이 필요합니다.`]:[])];
+        if(issues.length)attachment.reason=issues.join(' ');
+      }
+    }catch(error){
+      currentGenerationSignal()?.throwIfAborted();attachment.status='failed';attachment.reason=error instanceof Error?error.message:'PDF 추출 실패';
+    }
+  }
+  const primary=attachments.find(item=>item.role==='primary');
+  const text=parts.join('\n\n');
+  if(primary?.kind==='pdf'&&primary.status==='ok'&&text.trim().length>=50)return {ok:true,finalUrl,title,text,hash:sha256(text),attachments,contentKind:'pdf'};
+  return {ok:false,status:'unsupported',error:primary&&primary.kind!=='pdf'?'GED 모집요강의 주 첨부가 자동 읽기를 지원하지 않는 형식입니다. 첨부 상태를 확인해 주세요.':'GED 모집요강 PDF 본문을 자동 확보하지 못했습니다. 첨부 상태를 확인하거나 원문을 다시 확보해 주세요.',attachments,finalUrl};
 }
 function failure(e: unknown): ExtractResult {
   if (e instanceof FetchFailure) {
@@ -173,6 +254,7 @@ export async function fetchAndExtract(url: string, fetchImpl = safeFetch, contex
     if (context.title && articleHeadlines(html, res.finalUrl).length && !matchesPrimaryArticleHeadline(html, context.title, res.finalUrl))
       return { ok: false, status: "unsupported", error: "원문 페이지의 주기사 제목이 수집 제목과 일치하지 않아 본문을 저장하지 않았습니다. 원문 주소를 확인하거나 본문을 직접 붙여넣어 주세요.", finalUrl: res.finalUrl };
     const { title, text, attachments } = extractHtml(html, res.finalUrl, context);
+    if(isGedNoticePage(res.finalUrl))return readGedNotice(attachments,res.finalUrl,context.title||title,fetchImpl,context,deadline);
     // MCST press releases publish the actual document as an attachment. The page's
     // HTML paragraphs can contain only licensing/login text, which is not a body.
     const final = new URL(res.finalUrl);

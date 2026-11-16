@@ -3,14 +3,15 @@ import { getTableName } from 'drizzle-orm';
 import { manualBoardWorkload, manualCollectionBudget } from '../server/services/manualCollectionBudget';
 import type { ChannelBudget } from '../shared/schema';
 
-const state = vi.hoisted(() => ({ snapshot: null as any, report: null as any, nextItem: 100 }));
+const state = vi.hoisted(() => ({ snapshot: null as any, report: null as any, nextItem: 100, persisted:[] as any[], extraFetch:vi.fn(async(..._args:unknown[])=>{throw new Error('Unexpected attachment request');}) }));
 vi.mock('../server/seed', () => ({ getSetting: async () => false }));
 vi.mock('../server/worker/discovery', () => ({ runDiscovery: async () => null, upsertNaverDoc: async () => ({ id: 1 }) }));
-vi.mock('../server/services/sourceFetchPersistence', () => ({ persistSourceFetchAttempt: async () => ({ hasUsableBody: true }) }));
+vi.mock('../server/services/sourceFetchPersistence', () => ({ persistSourceFetchAttempt: async (...args:any[]) => {state.persisted.push(args[2]);return { hasUsableBody: true };} }));
+vi.mock('../server/services/safeFetch',async original=>({...await original<object>(),safeFetch:(...args:unknown[])=>state.extraFetch(...args)}));
 vi.mock('../server/services/telegram', () => ({ sendReviewMessage: () => { throw new Error('Manual collection must not notify'); } }));
 const zero: ChannelBudget = { naverCallsPerRun: 0, resultsPerRun: 0, fetchTargetsPerRun: 0, fetchCallsPerRun: 0, llmCallsPerRun: 0, dailyPublishLimit: 0, discovery: { enabled: false, autoDraft: false } };
 beforeEach(() => {
-  state.snapshot = state.report = null; state.nextItem = 100;
+  state.snapshot = state.report = null; state.nextItem = 100;state.persisted=[];state.extraFetch.mockClear();
   vi.stubEnv('NAVER_CLIENT_ID', 'unit-not-a-real-key'); vi.stubEnv('NAVER_CLIENT_SECRET', 'unit-not-a-real-key');
   vi.stubEnv('AUTO_GENERATE', 'true');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('External calls forbidden'); }));
@@ -80,4 +81,16 @@ it.each([{ trigger: 'schedule', manualWorkload: true }, { trigger: 'worker', man
   const { runCollect } = await import('../server/worker/collect'); const naverFetch = vi.fn() as typeof fetch;
   await runCollect(database(), 2, { ...options, trigger: options.trigger as 'schedule' | 'worker', collectionOnly: true, naverFetch });
   expect(naverFetch).not.toHaveBeenCalled(); expect(state.snapshot.manualWorkload).toBe(false); expect(state.snapshot.channel.budget.resultsPerRun).toBe(0);
+});
+
+it('does not spend a fourth attachment request after the GED reader reaches its PDF cap',async()=>{
+  const {runCollect}=await import('../server/worker/collect');
+  const naverFetch=vi.fn(async()=>new Response(JSON.stringify({items:[{title:'Synthetic article',link:'https://source.example/article',description:'fixture'}]}),{status:200})) as typeof fetch;
+  const fetchSource=vi.fn(async()=>({ok:true as const,finalUrl:'https://ged.kedi.re.kr/inno/slctNotiInnoPop.do?pop1=Y&stndYear=2027&orgId=10117174001&seq=25584',title:'GED guide',text:'주 모집요강 PDF에서 이미 확보한 본문입니다.',hash:'fixture',contentKind:'pdf' as const,attachments:[
+    {url:'https://ged.kedi.re.kr/first.pdf',name:'모집요강.pdf',kind:'pdf',status:'ok',role:'primary' as const},
+    {url:'https://ged.kedi.re.kr/fourth.pdf',name:'추가.pdf',kind:'pdf',status:'pending',reason:'PDF 3개 자동 읽기 한도'},
+  ]}));
+  const result=await runCollect(database(),2,{trigger:'worker',manualWorkload:true,collectionOnly:true,naverFetch,fetchSource});
+  expect(result.counts.fetchedOk).toBe(2);expect(state.extraFetch).not.toHaveBeenCalled();
+  expect(state.persisted).toHaveLength(2);expect(state.persisted.every(value=>value.attachments[1].status==='pending')).toBe(true);
 });

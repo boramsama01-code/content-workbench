@@ -20,6 +20,8 @@ import { NOTICE_INTENTS, NOTICE_INTENT_LABEL, type NoticeIntent } from "@shared/
 import { WorkModeControl, type WorkMode } from "../WorkModeControl";
 import { channelCategories } from "@shared/channelCategories";
 import { useListContext, useListScroll } from "../useListContext";
+import {NOTICE_BUNDLE_LIMIT} from '@shared/noticeBundle';
+import {NoticeBundleBasket,NoticeBundleDialog,useNoticeBasket,type NoticeChoice} from '../NoticeBundle';
 
 export type ListRow = {
   item: ContentItem;
@@ -123,6 +125,9 @@ export function InboxPage() {
   }, [context.scope, context.value, context.update, context.rememberEntry, search, today, navigate]);
   const ideas = isIdeaChannel(current) && mode === "ideas";
   const noticeChannel = current?.contentType === "notice";
+  const noticeBasket=useNoticeBasket(noticeChannel&&typeof selected==='number'?selected:undefined);
+  const [bundleOpen,setBundleOpen]=useState(false);
+  useEffect(()=>setBundleOpen(false),[selected]);
   const query = useQuery({
     queryKey: ["ch", selected, "items", f, page, ideas],
     queryFn: () => api<ListResp>(`/items?${qs({ channelId: selected, ...f, fetchStatus: ideas ? undefined : f.fetchStatus || undefined, noticeIntent: noticeChannel ? f.noticeIntent : undefined, collectedOn: ideas ? undefined : f.collectedOn || undefined, origin: ideas ? "idea" : "scrap", page, pageSize: 20 })}`),
@@ -257,6 +262,8 @@ export function InboxPage() {
 
       {!query.isLoading && !query.error && <p className="small muted" role="status">{ideas ? "아이디어" : "자료"} {query.data?.total ?? 0}건{!ideas && f.fetchStatus ? ` · ${BODY_FILTERS.find(option => option.value === f.fetchStatus)?.label ?? "본문 상태 필터 적용"}` : ""}</p>}
 
+      {noticeChannel&&<NoticeBundleBasket choices={noticeBasket.choices} onRemove={noticeBasket.remove} onClear={noticeBasket.clear} onCreate={()=>setBundleOpen(true)}/>}
+      {bundleOpen&&noticeChannel&&typeof selected==='number'&&<NoticeBundleDialog key={selected} channelId={selected} choices={noticeBasket.choices} onClose={()=>setBundleOpen(false)} onOpen={()=>{setBundleOpen(false);noticeBasket.clear();}}/>}
       {query.isLoading ? (
         <Loading lines={4} label="수집함 불러오는 중" />
       ) : query.error ? (
@@ -269,7 +276,7 @@ export function InboxPage() {
         </Empty>
       ) : (
         <div className="stack" aria-busy={query.isFetching}>
-          {selected === "all" ? <ItemList rows={query.data.items} showChannel /> : <TriageList key={context.scope} rows={query.data.items} cid={selected} />}
+          {selected === "all" ? <ItemList rows={query.data.items} showChannel /> : <TriageList key={context.scope} rows={query.data.items} cid={selected} noticeBasket={noticeChannel?noticeBasket:undefined} onBundle={()=>setBundleOpen(true)} />}
           <Pager page={page} pageSize={20} total={query.data.total} onPage={setPage} />
         </div>
       )}
@@ -324,28 +331,42 @@ function ItemBody({ row: { item, source, channelName, matchedQuery, noticeIntent
 }
 
 /** 수집함 분류 목록 — 여러 개 선택 후 한꺼번에 처리, 키보드로 빠르게 훑기 */
-function TriageList({ rows, cid }: { rows: ListRow[]; cid: number }) {
+function TriageList({ rows, cid,noticeBasket,onBundle }: { rows: ListRow[]; cid: number;noticeBasket?:{choices:NoticeChoice[];update:(change:(rows:NoticeChoice[])=>NoticeChoice[])=>void;clear:()=>void};onBundle?:()=>void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const guard = useDirtyGuard();
   const [, navigate] = useLocation();
-  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [localPicked, setLocalPicked] = useState<Set<number>>(new Set());
+  const picked=noticeBasket?new Set(noticeBasket.choices.map(row=>row.id)):localPicked;
+  const clearPicked=()=>noticeBasket?noticeBasket.clear():setLocalPicked(new Set());
   const [focus, setFocus] = useState(0);
   const refs = useRef<Array<HTMLLIElement | null>>([]);
   const keyboardScroll = useRef(false);
-  useEffect(() => setPicked(new Set()), [rows]);
+  useEffect(() => {if(!noticeBasket)setLocalPicked(new Set());}, [rows,!!noticeBasket]);
   const bulk = useMutation({
     mutationFn: (a: { ids: number[]; action: string }) => api<{ updated: number }>(`/channels/${cid}/items/bulk`, { method: "POST", body: a }),
     onSuccess: (r, a) => {
       const label = { exclude: "제외", unexclude: "제외 해제", hold: "보류", pending: "검토 대기" }[a.action];
       toast("ok", `${r.updated}건을 '${label}'(으)로 바꿨습니다.`);
-      setPicked(new Set());
+      clearPicked();
       qc.invalidateQueries({ queryKey: ["ch", cid] });
     },
     onError: (e) => toast("err", (e as Error).message),
   });
   const act = (action: string, ids = [...picked]) => ids.length && bulk.mutate({ ids, action });
-  const toggle = (id: number) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const choice=(row:ListRow):NoticeChoice=>({id:row.item.id,title:row.item.title,sourceStatus:row.source?.fetchStatus??'not_fetched',...(row.source?.url?{sourceUrl:row.source.url}:{})});
+  const eligible=(row:ListRow)=>row.item.kind==='notice'&&!row.item.isSample;
+  const toggle = (id: number) => {
+    if(noticeBasket){const row=rows.find(row=>row.item.id===id);if(!row||!eligible(row))return;
+      if(!picked.has(id)&&picked.size>=NOTICE_BUNDLE_LIMIT){toast('err',`공고는 최대 ${NOTICE_BUNDLE_LIMIT}건까지 함께 만들 수 있습니다.`);return;}
+      noticeBasket.update(previous=>previous.some(row=>row.id===id)?previous.filter(row=>row.id!==id):[...previous,choice(row)]);
+    }else setLocalPicked(s=>{const next=new Set(s);next.has(id)?next.delete(id):next.add(id);return next;});
+  };
+  const toggleAll=()=>{if(!noticeBasket){setLocalPicked(all?new Set():new Set(rows.map(row=>row.item.id)));return;}
+    if(all){const ids=new Set(rows.map(row=>row.item.id));noticeBasket.update(previous=>previous.filter(row=>!ids.has(row.id)));return;}
+    const additions=rows.filter(row=>eligible(row)&&!picked.has(row.item.id));if(additions.length+picked.size>NOTICE_BUNDLE_LIMIT)toast('err',`최대 ${NOTICE_BUNDLE_LIMIT}건까지 선택했습니다. 바구니에서 원하는 공고를 확인해 주세요.`);
+    noticeBasket.update(previous=>[...previous,...additions.slice(0,NOTICE_BUNDLE_LIMIT-previous.length).map(choice)]);
+  };
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -370,15 +391,16 @@ function TriageList({ rows, cid }: { rows: ListRow[]; cid: number }) {
       {picked.size > 0 ? (
         <div className="bulkbar" role="region" aria-label="선택한 항목 처리">
           <strong>{picked.size}건 선택</strong>
+          {noticeBasket&&<button type="button" className="btn sm primary" disabled={picked.size<2} onClick={onBundle}>선택 공고로 콘텐츠 만들기</button>}
           <button className="btn sm" onClick={() => act("hold")}>보류</button>
           <button className="btn sm" onClick={() => act("pending")}>검토 대기로</button>
           <button className="btn sm" onClick={() => act("exclude")}>수집함에서 제외</button>
-          <button className="btn sm" onClick={() => setPicked(new Set())}>선택 해제</button>
+          <button className="btn sm" onClick={clearPicked}>선택 해제</button>
         </div>
       ) : (
         <div className="row between">
           <label className="check inbox-select-all">
-            <input type="checkbox" className="row-check" checked={all} onChange={() => setPicked(all ? new Set() : new Set(rows.map((r) => r.item.id)))} /> 이 페이지 전체 선택
+            <input type="checkbox" className="row-check" checked={all} onChange={toggleAll} /> 이 페이지 전체 선택
           </label>
           <span className="shortcut-hint hide-mobile">
             <span><kbd>J</kbd>/<kbd>K</kbd> 이동</span><span><kbd>Enter</kbd> 열기</span><span><kbd>X</kbd> 선택</span><span><kbd>H</kbd> 보류</span><span><kbd>E</kbd> 제외</span>
@@ -390,7 +412,7 @@ function TriageList({ rows, cid }: { rows: ListRow[]; cid: number }) {
           <li key={r.item.id} ref={(el) => { refs.current[i] = el; }} className={`list-item ${i === focus ? "focused" : ""}`} onClick={() => setFocus(i)}>
             <div className="item-head">
               <label className="inbox-row-select" onClick={event => { event.stopPropagation(); setFocus(i); }}>
-                <input type="checkbox" className="row-check" aria-label={`${r.item.title} 선택`} checked={picked.has(r.item.id)} onChange={() => toggle(r.item.id)} />
+                <input type="checkbox" className="row-check" aria-label={`${r.item.title} 선택`} checked={picked.has(r.item.id)} disabled={!!noticeBasket&&!eligible(r)} onChange={() => toggle(r.item.id)} />
               </label>
               <div className="stack" style={{ gap: 6, flex: 1, minWidth: 0 }}>
                 <ItemBody row={r} showChannel={false} />
