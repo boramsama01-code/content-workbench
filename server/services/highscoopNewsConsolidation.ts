@@ -54,9 +54,9 @@ export async function consolidateHighscoopNews(db: DB): Promise<boolean> {
     await tx.execute(sql`update canva_masters set template_version=template_version || '-merged-' || id,status='archived' where channel_id in (${sourceIds})`);
 
     // Advance ownership versions together only where a Canva binding was current before the move.
-    await tx.execute(sql`update app_settings a set value=jsonb_set(jsonb_set(a.value,'{lastStudioVersion}',to_jsonb(c.version+1)),'{sourceVersion}',case when i.id is not null then to_jsonb(i.version+1) else coalesce(a.value->'sourceVersion','null'::jsonb) end),updated_at=now()
+    await tx.execute(sql`update app_settings a set value=jsonb_set(jsonb_set(a.value,'{lastStudioVersion}',to_jsonb(c.version+1)),'{sourceVersion}',case when i.channel_id in (${sourceIds}) or (i.channel_id=${target.id} and i.subcategory='뉴스' and i.kind='notice') then to_jsonb(i.version+1) else coalesce(a.value->'sourceVersion','null'::jsonb) end),updated_at=now()
       from studio_cards c left join content_items i on i.id=c.source_item_id
-      where a.key='studio_canva_sync:' || c.id and c.content->>'channel' in ('news','science','science-dialogue','current-dialogue')
+      where a.key='studio_canva_sync:' || c.id and (c.content->>'channel' in ('news','science','science-dialogue','current-dialogue') or i.channel_id in (${sourceIds}))
       and a.value->>'lastStudioVersion'=c.version::text and (i.id is null or a.value->>'sourceVersion'=i.version::text)`);
     await tx.execute(sql`update studio_cards set content=jsonb_set(jsonb_set(content,'{channel}','"highscoop"'::jsonb),'{subcategory}','"뉴스"'::jsonb),version=version+1,updated_at=now()
       where content->>'channel' in ('news','science','science-dialogue','current-dialogue') or source_item_id in (select id from content_items where channel_id in (${sourceIds}))`);

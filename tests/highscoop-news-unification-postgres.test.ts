@@ -23,6 +23,8 @@ it("moves source work and immutable evidence, keeps old links and Canva versions
   const db=getDb(),body=manualBody(),saved=await initializeManualFamily(db,3,body,"test");
   const [oldItem]=await db.select().from(contentItems).where(eq(contentItems.id,saved.itemId));
   const [oldCard]=await db.select().from(studioCards).where(eq(studioCards.id,saved.studioCardId));
+  // The visual brand may already have been changed while source ownership is still old.
+  await db.update(studioCards).set({content:{...oldCard.content,channel:"highscoop"}}).where(eq(studioCards.id,oldCard.id));
   const [revision]=await db.select().from(contentRevisions).where(eq(contentRevisions.id,saved.revisionId));
   const evidenceBefore=await db.select().from(familyEvidenceRecords).where(eq(familyEvidenceRecords.contentItemId,oldItem.id));
   await db.insert(contentItems).values({channelId:1,kind:"notice",title:"같은 원문의 다른 모집 원고",primarySourceId:oldItem.primarySourceId});
