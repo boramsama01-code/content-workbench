@@ -84,7 +84,7 @@ export function StudioExport({ form, base, dirty, busy: parentBusy, change, save
   }, onSuccess: saved => { setPreview({ version: saved.version, format: saved.format }); setPreviewRetry(value => value + 1); setPreviewError(false); }, onError: error => toast("err", error.message) });
   const stalePreview = dirty || preview?.version !== base.version || preview?.format !== form.format;
   const previewAvailable = preview?.version === base.version && preview?.format === base.format;
-  const pageLabels = base.finishedDeck ? base.finishedDeck.pages.map((_, index) => `${index + 1}페이지`) : base.experience ? ["표지", ...base.experience.pages.map((_, index) => `본문 ${index + 1}`)] : ["표지", "본문 1", "본문 2", "본문 3", "본문 4", "마무리"].slice(0, studioPageCount(base));
+  const pageLabels = base.finishedDeck ? base.finishedDeck.pages.map((_, index) => `${index + 1}페이지`) : base.experience ? ["표지", ...base.experience.pages.map((_, index) => `본문 ${index + 1}`), ...(studioPageCount(base)>base.experience.pages.length+1?["마무리"]:[])] : ["표지", "본문 1", "본문 2", "본문 3", "본문 4", "마무리"].slice(0, studioPageCount(base));
   const pageArt = (index: number) => {
     if (base.finishedDeck?.pages[index]) return `/api/studio/images/${base.finishedDeck.pages[index].imageId}`;
     if (base.experience) { const id = index === 0 ? base.experience.coverId : base.experience.pages[index - 1]?.mediaId; return id ? experienceImageUrl(id) : null; }
@@ -93,7 +93,7 @@ export function StudioExport({ form, base, dirty, busy: parentBusy, change, save
   };
   const focusField = (field: string) => { onFieldFocus?.(field); window.requestAnimationFrame(() => document.getElementById(`studio-${field}`)?.focus()); };
   return <><section className="panel stack studio-export" aria-labelledby="studio-export-heading">
-    <div><h2 id="studio-export-heading">최종 이미지</h2><p className="small muted">{form.experience ? `후기 카드 ${studioPageCount(form)}장 · 1080 × 1350 PNG + 선택한 영상 원본 + 캡션` : studioOutputDescription(form.format, form.exportDesign)}</p></div>
+    <div><h2 id="studio-export-heading">최종 이미지</h2><p className="small muted">{form.experience ? `후기 카드 ${studioPageCount(form)}장 · 1080 × 1350 PNG + 선택한 영상 원본 + 캡션` : studioOutputDescription(form.format, form.exportDesign,form.channel)}</p></div>
     {!form.experience && form.format !== "카드뉴스" && <div className="studio-export-designs" role="group" aria-label="출력 디자인">
       {designs.map(design => <button key={design.id} type="button" className={`studio-design-option design-${design.id}`} aria-pressed={form.exportDesign === design.id} disabled={busy || prepare.isPending} onClick={() => change("exportDesign", design.id)}><span className="studio-design-swatch" aria-hidden="true"><i /><i /><i /></span><strong>{design.name}</strong><small>{design.detail}</small></button>)}
     </div>}
@@ -105,7 +105,7 @@ export function StudioExport({ form, base, dirty, busy: parentBusy, change, save
     <label className="field">출처 표기<input id="studio-sourceLabel" disabled={busy || prepare.isPending} maxLength={180} value={form.sourceLabel} onChange={event => change("sourceLabel", event.target.value)} placeholder="예: ○○대학교 입학처 · 2026.10.23 확인" /><span className="hint">이미지 하단에 표시됩니다.</span></label>
     {["카드뉴스","웹툰"].includes(form.format) && <AltTextEditor values={studioAltTextDrafts(form)} defaults={form.finishedDeck?undefined:studioAltTextDefaults(form)} selected={page} onSelect={setPage} disabled={busy||prepare.isPending} change={(index,value)=>{
       if(form.finishedDeck)change("finishedDeck",{pages:form.finishedDeck.pages.map((p,i)=>i===index?{...p,altText:value}:p)});
-      else if(form.experience){const e=form.experience;change("experience",index===0?{...e,coverAltText:value}:{...e,pages:e.pages.map((p,i)=>i===index-1?{...p,altText:value}:p)});}
+      else if(form.experience){const e=form.experience;if(index>e.pages.length){const values=studioAltTextDrafts(form);values[index]=value;change("altTexts",values);}else change("experience",index===0?{...e,coverAltText:value}:{...e,pages:e.pages.map((p,i)=>i===index-1?{...p,altText:value}:p)});}
       else {const values=studioAltTextDrafts(form);values[index]=value;change("altTexts",values);}
     }}/>}
     {form.format === "카드뉴스" && <p className="small muted">ZIP에 페이지별 대체텍스트(alt-text.txt)를 함께 담습니다.</p>}

@@ -8,7 +8,10 @@ import { familyDisplayContext, familyDisplayDescriptors, familyReadingTextValues
 import { resolvedReadingPageDesigns } from "@shared/readingPageImages";
 import { READING_PROFILE_LOGO_ID, readingProfileForTemplateKey, readingProfileDesigns, readingDisplayDescriptors, readingImageSlot, readingArtworkPages } from "@shared/readingCardProfiles";
 import { familyCollectionDesign, familyCollectionPageDesigns } from "@shared/familyCollectionDesigns";
-import { isCurrentEditorialTemplate } from "@shared/editorialTemplates";
+import { editorialTemplateForKey, isCurrentEditorialTemplate } from "@shared/editorialTemplates";
+import { isHighScoopChannel } from "@shared/highscoopTemplates";
+import { HIGHSCOOP_CLOSING_COPY, highScoopClosingAccent } from "@shared/highscoopClosing";
+import type { Channel } from "@shared/schema";
 import { FAMILY_PROFILE_ASSET, FAMILY_ENDING_ASSETS, FAMILY_ENDING_FIXED_TEXT, REGISTERED_PROFILE_ASSETS, isRegisteredProfileAssetId, familyEndingAsset, selectedFamilyEnding } from "@shared/characterVariantAssets";
 import type { FamilyEvidenceView } from "@shared/familyEvidence";
 import { api, apiBlob, ApiError } from "./api";
@@ -71,7 +74,7 @@ function textOf(value: unknown): string {
   if (typeof value === "object") return Object.entries(value).filter(([key]) => !["mode", "resourceId", "logoAssetId"].includes(key)).map(([, value]) => textOf(value)).filter(Boolean).join("\n");
   return String(value);
 }
-export type FamilyCopyContext = Partial<Pick<FamilyDialogueResponse, "captionPackage" | "pageDesigns" | "artworkCredits">>;
+export type FamilyCopyContext = Partial<Pick<FamilyDialogueResponse, "captionPackage" | "pageDesigns" | "artworkCredits">> & {highscoopClosing?:boolean};
 export const familyCopyText = (copy: CardCopyV2, context: FamilyCopyContext = {}) => {
   const profile = readingProfileForTemplateKey(copy.templateKey);
   if (profile) {
@@ -80,10 +83,12 @@ export const familyCopyText = (copy: CardCopyV2, context: FamilyCopyContext = {}
     const values = familyReadingTextValues(copy, familyDisplayContext(copy, context.captionPackage), pageContexts);
     return profile.pages.map(page => {
       const id=copy.pages[page.page-1].id,ending=selectedFamilyEnding(id,context.pageDesigns?.[id]);
+      if(id==='outro'&&context.highscoopClosing)return `${page.page}. ${FAMILY_PAGE_LABELS[id]}\n${HIGHSCOOP_CLOSING_COPY.description}\n${HIGHSCOOP_CLOSING_COPY.handle}\n${HIGHSCOOP_CLOSING_COPY.action}`;
       return `${page.page}. ${FAMILY_PAGE_LABELS[id]}\n${ending ? `${ending.label} · 전체 이미지로 적용\n고정 문구: ${FAMILY_ENDING_FIXED_TEXT.join(" · ")}` : page.textBoxes.map(box => values[box.field]).filter(Boolean).join("\n")}`;
     }).join("\n\n");
   }
   return copy.pages.map(page => {
+  if(page.id==='outro'&&context.highscoopClosing)return `${page.page}. ${FAMILY_PAGE_LABELS[page.id]}\n${HIGHSCOOP_CLOSING_COPY.description}\n${HIGHSCOOP_CLOSING_COPY.handle}\n${HIGHSCOOP_CLOSING_COPY.action}`;
   const ending=selectedFamilyEnding(page.id,context.pageDesigns?.[page.id]);
   if(ending)return `${page.page}. ${FAMILY_PAGE_LABELS[page.id]}\n${ending.label} · 전체 이미지로 적용\n고정 문구: ${FAMILY_ENDING_FIXED_TEXT.join(" · ")}`;
   const background = context.pageDesigns?.[page.id].background;
@@ -93,7 +98,6 @@ export const familyCopyText = (copy: CardCopyV2, context: FamilyCopyContext = {}
   return `${page.page}. ${FAMILY_PAGE_LABELS[page.id]}\n${textOf(page.fields)}\n${labels}${interior?.interiorBody !== undefined ? `\n구성 본문: ${interior.interiorBody}` : ""}${interior?.footnote ? `\n각주: ${interior.footnote}` : ""}`;
   }).join("\n\n");
 };
-const copyText = familyCopyText;
 function pageValue(page: FamilyPage, path: string): unknown { return path.split(".").reduce<unknown>((value, key) => value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined, page); }
 const localRefPath = (page: FamilyPage, ref: ClaimRef) => ref.fieldPath.startsWith(`pages.${page.id}.`) ? ref.fieldPath.slice(`pages.${page.id}.`.length) : ref.fieldPath;
 function individualFactRefs(page: FamilyPage): ClaimRef[] {
@@ -193,6 +197,9 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
   const { channelId, itemId, initial, itemVersion, onDirtyChange, onSaved, onSaveAndRender, onApplyCaption, onEditCaption, disabled = false, showAi = true, renderDisabled = false, formatConflict = false, templateKey, onTemplateChange, previewRevision } = props;
   const path = `/channels/${channelId}/items/${itemId}/card-copy`, queryKey = ["card-copy", channelId, itemId], uid = useId();
   const qc = useQueryClient(), guard = useDirtyGuard();
+  const channel = qc.getQueryData<Channel[]>(["channels"])?.find(value => value.id === channelId);
+  const highScoop = channel ? isHighScoopChannel(channel) : props.writingContext?.channel === "highscoop" || isHighScoopChannel({name:props.writingContext?.channelName});
+  const copyText = (copy:CardCopyV2,context:FamilyCopyContext={}) => familyCopyText(copy,{...context,highscoopClosing:highScoop});
   const aiStatus = useQuery({ queryKey: ["studio-ai-status"], queryFn: () => api<{ text: Record<string, boolean>; image?: boolean }>("/studio/ai-status"), retry: false, staleTime: 30_000 });
   const [base, setBase] = useState(initial), baseRef = useRef(initial), [draft, setDraft] = useState(initial), draftRef = useRef(initial);
   const [selected, setSelected] = useState(0), [selectedField, setSelectedField] = useState<string | null>(null);
@@ -218,7 +225,9 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
     return { index, label: invalidPage ? `${index! + 1}페이지 ${FAMILY_PAGE_LABELS[invalidPage.id]} · ${label ?? "문구·구성"}` : "8장 원고 구성", message: issue.message };
   });
   const page = draft.copy.pages[selected], design = draft.pageDesigns[page.id];
-  const selectedEnding = selectedFamilyEnding(page.id, design);
+  const highScoopClosing = highScoop && page.id === "outro";
+  const closingAccent = highScoopClosingAccent(editorialTemplateForKey(draft.copy.templateKey)?.color ?? channel?.accentColor);
+  const selectedEnding = highScoopClosing ? undefined : selectedFamilyEnding(page.id, design);
   const readingProfile = readingProfileForTemplateKey(draft.copy.templateKey), readingSlot = readingProfile && readingImageSlot(readingProfile, page.id);
   const effectiveDesign = resolvedReadingPageDesigns(draft.copy,draft.pageDesigns)[page.id];
   const visibleDisplayFields = readingProfile ? readingDisplayDescriptors(readingProfile, page) : familyDisplayDescriptors(page);
@@ -533,6 +542,8 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
           {design.interiorBody !== undefined && <p className="notice small">적용한 구성 본문을 미리보기에 표시합니다. 아래 원래 원고와 근거는 유지되며, 원고 수정 후에는 구성 본문도 확인해 주세요.</p>}
         </>}
         {page.id === "perspectives" && !readingProfile && !isCurrentEditorialTemplate(draft.copy.templateKey) && <label className="field">두 시선 배치<select value={page.layout === "columns" ? "columns" : "stacked"} disabled={disabled || !!recovery.pending} onChange={event => put(invalidateDerived({ ...draftRef.current, copy: { ...draftRef.current.copy, pages: draftRef.current.copy.pages.map(value => value.id === "perspectives" ? { ...value, layout: event.target.value } : value) } }))}><option value="stacked">위아래 · 기본</option><option value="columns">좌우 · 짧은 문구에 적합</option></select></label>}
+        {highScoopClosing && <div className="notice stack" data-testid="highscoop-approved-closing"><strong>HighScoop 공통 마지막 장</strong><p>보내주신 마지막 장의 로고·소개·계정·안내 문구와 배치를 함께 사용합니다. 하단 안내 바는 선택한 컬러·카테고리의 색상을 따릅니다.</p><pre>{HIGHSCOOP_CLOSING_COPY.description}{"\n"}{HIGHSCOOP_CLOSING_COPY.handle}{"\n"}{HIGHSCOOP_CLOSING_COPY.action}</pre><p className="small">이전에 저장한 마지막 장의 문구와 이미지는 원고 기록에 보관됩니다.</p></div>}
+        {!highScoopClosing && <>
         {readingProfile && <p className="hint">이 스타일은 뉴스 본문과 STEP 문구를 고정 영역에 배치합니다. 아래 원고의 보조 제목은 보관되며 일부 페이지에서는 표시되지 않습니다. 줄이 넘치면 해당 칸을 알려 드립니다.</p>}
         {page.id==='outro'&&<fieldset className="stack family-outro-picker" data-testid="family-outro-picker"><legend>마지막 장 이미지</legend>
           <label className="field">마지막 장 방식<select aria-label="마지막 장 방식" value={selectedEnding?.id??'template'} disabled={busy||aiBusy||!!conflict} onChange={event=>chooseOutroPresentation(event.target.value)}>
@@ -563,6 +574,7 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
           })}
           <p className="hint">이 문구를 Canva에도 반영하려면 대응하는 자동 채우기 필드가 필요합니다. 지원하지 않는 마스터는 자동 제작 전에 알려 드립니다.</p>
         </fieldset>
+        </>}
         {page.id === "activity" && <div className="notice small">{page.fields.optionalActivity ? <>확인된 추가 자료를 쓰는 선택 활동입니다.<button className="btn sm ghost" disabled={busy} onClick={removeOptionalActivity}>추가 활동 빼기</button></> : "확인된 추가 자료가 없어 집 활동만 표시합니다. 선택 활동 영역은 이미지에서도 완전히 빠집니다."}</div>}
       </div>
       <div className="card-copy-preview-column">
@@ -573,7 +585,7 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
         </figure>}
         <p className="hint">{readingProfile?.sourceStyleId ? "현재 입력의 배치 미리보기입니다. 저장한 뒤 ‘8장 디자인 완성’에서 이미지를 만들고 완성된 8장을 확인하세요. 이 미리보기는 유료 이미지 생성을 요청하지 않습니다." : "현재 입력의 자체 렌더입니다. 게시할 완성본은 Canva 내보내기 미리보기에서 확인하세요. 미리보기는 유료 이미지 생성을 요청하지 않습니다."}</p>
         {previewError && <ErrorBox error={previewError} retry={() => setPreviewRetry(value => value + 1)} />}
-        {selectedEnding?<div className="notice small"><strong>{selectedEnding.label}</strong><p>{selectedEnding.revision==='latest'?'최근 수정안':'이전 수정안'} · 원본 전체 이미지. 직접 작성한 문구는 보관합니다.</p><a href={selectedEnding.publicUrl} target="_blank" rel="noopener noreferrer">엔딩 원본 보기 ↗</a></div>:page.id === "outro" && readingProfile ? <div className="notice small stack" data-testid="family-reading-outro-design"><strong>공통 마무리 · 선택한 프로필</strong><p>선택한 스타일의 배치와 프로필창을 사용합니다. 프로필은 이 장에만 표시하며 마지막 문구·행동 안내·계정은 왼쪽 입력칸에서 수정할 수 있습니다.</p></div> : page.id === "outro" ? <div className="notice small stack" data-testid="family-outro-fixed-design">
+        {highScoopClosing?<div className="notice small stack" data-testid="highscoop-closing-design"><strong>확정된 공통 마무리</strong><p>스튜디오에서 새로 출력하는 HighScoop 카드는 크림색 배경과 로고·문구·검색창을 동일하게 사용합니다. 하단 안내 바의 색만 바뀝니다.</p><p className="row"><span aria-hidden="true" style={{display:'inline-block',width:20,height:20,borderRadius:6,background:closingAccent}}/><span>하단 포인트색 {closingAccent}</span></p><p>색상은 위의 ‘전체 카드 디자인’에서 바꿀 수 있습니다. 글이 잘 보이도록 같은 계열의 진한 색으로 맞춥니다.</p></div>:selectedEnding?<div className="notice small"><strong>{selectedEnding.label}</strong><p>{selectedEnding.revision==='latest'?'최근 수정안':'이전 수정안'} · 원본 전체 이미지. 직접 작성한 문구는 보관합니다.</p><a href={selectedEnding.publicUrl} target="_blank" rel="noopener noreferrer">엔딩 원본 보기 ↗</a></div>:page.id === "outro" && readingProfile ? <div className="notice small stack" data-testid="family-reading-outro-design"><strong>공통 마무리 · 선택한 프로필</strong><p>선택한 스타일의 배치와 프로필창을 사용합니다. 프로필은 이 장에만 표시하며 마지막 문구·행동 안내·계정은 왼쪽 입력칸에서 수정할 수 있습니다.</p></div> : page.id === "outro" ? <div className="notice small stack" data-testid="family-outro-fixed-design">
           <strong>승인된 닫는 표지 디자인</strong>
           <p>8장은 승인된 브랜드 마무리로, Canva의 고정 배경·중앙 정렬·기존 로고를 사용합니다. 브랜드명·브랜드 문구·계정·마지막 행동 안내는 현재 콘텐츠의 문구 입력칸에서 수정할 수 있습니다.</p>
           {!fixedOutroDesign && <><p>기존 배경·정렬 설정은 자체 렌더용으로 보관하고 있습니다. Canva로 만들려면 승인된 닫는 표지 배치를 선택하고 저장해 주세요.</p><button className="btn" disabled={busy || aiBusy || !!conflict} onClick={useApprovedOutroDesign}>승인된 닫는 표지 배치 사용</button></>}
@@ -599,7 +611,7 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
       </div>
     </div>
     {generation.unresolved && <div className="notice warn stack" role="status"><p>이전 {pendingScope} 요청의 결과가 아직 확인되지 않았습니다. 다른 자동 제안을 시작하지 않고 같은 요청의 결과만 확인합니다.</p><button type="button" className="btn" disabled={busy || aiBusy || !!conflict} onClick={() => { if (generation.unresolved) void generate(); }}>이전 요청 결과 확인</button></div>}
-    {showAi && <details ref={aiPanel} className="family-ai"><summary>자동으로 문구 다듬기{aiBusy ? " · 작업 중" : aiError ? " · 확인할 오류 있음" : ""}</summary><div className="stack"><p className="hint">{selectedField ? `선택한 칸: ${familyFieldDescriptors(page).find(value => selectedField.startsWith(value.fieldPath))?.label ?? selectedField}` : `선택한 장: ${FAMILY_PAGE_LABELS[page.id]}`} · 잠근 칸은 자동으로 바꾸지 않습니다.</p><label className="field">고치고 싶은 점<textarea rows={3} maxLength={2000} value={instructions} onChange={event => setInstructions(event.target.value)} placeholder="예: 전망이라는 성격은 유지하고, 일상에서 비교할 수 있는 짧은 문장으로 다듬어 주세요." /></label><div className="row"><button className="btn primary" disabled={busy || aiBusy || !!conflict || !!selectedField && !!draft.fieldLocks[selectedField]} onClick={() => void generate()}>{generation.unresolved ? "이전 요청 결과 확인" : aiBusy ? "자동 제안 중…" : selectedField ? "선택한 칸 자동 제안" : "이 페이지 자동 제안"}</button>{selectedField && <button className="btn ghost" onClick={() => setSelectedField(null)}>페이지 전체 선택</button>}<button className="btn ghost" disabled={busy || aiBusy || !!conflict || generation.unresolved} onClick={() => void generate("all")}>8장 전체 다시 제안</button>{generation.unresolved && <button className="btn ghost" disabled={generation.cancelling} onClick={() => void generation.cancel()}>요청 중단</button>}</div><p className="hint">제안은 원고를 덮어쓰지 않습니다. 결과를 확인하고 직접 적용한 뒤 저장합니다.</p></div></details>}
+    {showAi && !highScoopClosing && <details ref={aiPanel} className="family-ai"><summary>자동으로 문구 다듬기{aiBusy ? " · 작업 중" : aiError ? " · 확인할 오류 있음" : ""}</summary><div className="stack"><p className="hint">{selectedField ? `선택한 칸: ${familyFieldDescriptors(page).find(value => selectedField.startsWith(value.fieldPath))?.label ?? selectedField}` : `선택한 장: ${FAMILY_PAGE_LABELS[page.id]}`} · 잠근 칸은 자동으로 바꾸지 않습니다.</p><label className="field">고치고 싶은 점<textarea rows={3} maxLength={2000} value={instructions} onChange={event => setInstructions(event.target.value)} placeholder="예: 전망이라는 성격은 유지하고, 일상에서 비교할 수 있는 짧은 문장으로 다듬어 주세요." /></label><div className="row"><button className="btn primary" disabled={busy || aiBusy || !!conflict || !!selectedField && !!draft.fieldLocks[selectedField]} onClick={() => void generate()}>{generation.unresolved ? "이전 요청 결과 확인" : aiBusy ? "자동 제안 중…" : selectedField ? "선택한 칸 자동 제안" : "이 페이지 자동 제안"}</button>{selectedField && <button className="btn ghost" onClick={() => setSelectedField(null)}>페이지 전체 선택</button>}<button className="btn ghost" disabled={busy || aiBusy || !!conflict || generation.unresolved} onClick={() => void generate("all")}>8장 전체 다시 제안</button>{generation.unresolved && <button className="btn ghost" disabled={generation.cancelling} onClick={() => void generation.cancel()}>요청 중단</button>}</div><p className="hint">제안은 원고를 덮어쓰지 않습니다. 결과를 확인하고 직접 적용한 뒤 저장합니다.</p></div></details>}
     {aiError && <ErrorBox error={aiError} />}{generation.cancelError && <ErrorBox error={generation.cancelError} />}
     {!!reviewFlags.length && <div className="notice warn stack" role="status"><strong>현재 작업을 유지했습니다. 다음 내용을 확인해 주세요.</strong>{reviewFlags.map((flag, i) => <p key={`${flag.path}-${i}`}>{flag.message}</p>)}</div>}
     {proposal && <div className="card-copy-proposal notice stack"><strong>자동 제안 · 아직 원고에 적용하지 않았습니다</strong>{proposal.result.scope === "caption" ? <div className="card-copy-compare"><div><h4>현재 캡션 제안</h4><pre>{draft.captionPackage?.fullCaption ?? "없음"}</pre></div><div><h4>새 캡션 제안</h4><pre>{proposal.result.captionPackage?.fullCaption ?? "없음"}</pre></div></div> : proposal.result.scope === "review" ? <div>{proposal.result.editorialReview?.issues.map((issue, i) => <p key={`${issue.path}-${i}`}>{issue.problem}</p>)}{!proposal.result.editorialReview?.issues.length && <p>검수 결과에 등록된 수정 항목이 없습니다. 외부 게시 성공을 확인한 결과는 아닙니다.</p>}</div> : <div className="card-copy-compare"><div><h4>현재 원고</h4><pre>{copyText(draft.copy, draft)}</pre></div><div><h4>제안</h4><pre>{proposal.result.copy ? copyText(proposal.result.copy, { ...draft, ...proposal.result, artworkCredits: { ...draft.artworkCredits, ...proposal.result.artworkCredits } }) : "원고는 유지했습니다."}</pre></div></div>}{!canApply && <p role="alert">요청 뒤 입력 또는 저장 버전이 달라졌습니다. 현재 작업을 보호하기 위해 자동 적용하지 않습니다. 필요한 문구만 복사하거나 최신 원고로 다시 제안받아 주세요.</p>}<div className="row"><button className="btn primary" disabled={!canApply || busy} onClick={applyProposal}>제안을 편집기에 적용</button><button className="btn ghost" onClick={() => setProposal(null)}>현재 원고 유지</button></div></div>}

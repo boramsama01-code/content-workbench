@@ -3,6 +3,7 @@ import { studioKey } from './channelKeys';
 import { channelBrandName } from './branding';
 import {expectedInstagramUsername} from './channelInstagram';
 import { HIGH_SCOOP_LAYOUT_LABELS, HIGH_SCOOP_TEMPLATE_KITS, HIGH_SCOOP_TEMPLATE_VERSION, isHighScoopChannel } from './highscoopTemplates';
+import { HIGHSCOOP_CLOSING_COPY, HIGHSCOOP_CLOSING_LAYOUT } from './highscoopClosing';
 
 /** One current page system. Historical brand keys remain valid aliases for saved work. */
 export const EDITORIAL_TEMPLATE_VERSION = `${HIGH_SCOOP_TEMPLATE_VERSION}-news`;
@@ -45,7 +46,7 @@ export function editorialTemplateForChannel(channel:EditorialChannel,key:string|
 export function editorialBrandForChannel(channel:EditorialChannel):EditorialBrand{
  const id=isHighScoopChannel(channel)?'highscoop':studioKey(channel.slug??''),name=channelBrandName({slug:channel.slug??'',name:channel.name?.trim()||channel.slug||'Studio'});
  const username=expectedInstagramUsername(channel.slug??''),handle=username?`@${username}`:undefined;
- if(id==='highscoop')return {id,name:'HighScoop',handle:'@highscoop.official',logoPath:'assets/branding/highscoop-magazine-color.png',darkLogoPath:'assets/branding/highscoop-magazine-dark.png',follow:'아이의 관심에서 다음 도전까지',introduction:'아이의 호기심을 놓치지 않고,\n함께 도전할 기회를 찾아봅니다.',action:'다음 이야기도 궁금하다면, 하이스쿱을 찾아주세요.'};
+ if(id==='highscoop')return {id,name:'HighScoop',handle:HIGHSCOOP_CLOSING_COPY.handle,logoPath:HIGHSCOOP_CLOSING_LAYOUT.logoPath,darkLogoPath:'assets/branding/highscoop-magazine-dark.png',follow:HIGHSCOOP_CLOSING_COPY.follow,introduction:HIGHSCOOP_CLOSING_COPY.introduction,action:HIGHSCOOP_CLOSING_COPY.action};
  if(id==='news')return {id,name:'Alligodang',handle,logoPath:'assets/branding/allligodang-bw.png',follow:'세상 이야기가 우리 집 대화로',introduction:'뉴스와 과학, 세상의 새로운 이야기를\n아이와 함께 읽고 나눕니다.',action:'다음 이야기도 궁금하다면, 알리고당을 찾아주세요.'};
  return {id,name,handle,...(id==='penguin'?{logoPath:'assets/branding/space-penguin-company.png'}:{}),follow:name,introduction:'새로운 이야기와 다음 콘텐츠를 함께 만나보세요.',action:`다음 이야기도 궁금하다면, ${name}을 찾아주세요.`};
 }

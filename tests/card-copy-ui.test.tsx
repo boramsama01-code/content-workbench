@@ -91,6 +91,45 @@ function promptFixture(): CardImagePromptView {
 }
 
 describe("card copy editor", () => {
+  it("previews the appended HighScoop closing separately and preserves all nine editable body pages", async () => {
+    saved.copy.pages = Array.from({ length: 9 }, (_, i) => ({ id: `body-${i + 1}`, title: `본문 제목 ${i + 1}`, subtitle: `본문 부제 ${i + 1}`, body: `원문에 근거한 카드 본문 ${i + 1}` }));
+    const original = structuredClone(saved.copy);
+    await render(createElement(CardCopyEditor, { channelId: 1, itemId: 9, writingContext: { channel: "highscoop", channelName: "HighScoop", caption: "", sourceLabel: "" } }));
+    expect(host.textContent).toContain("전체 11장");
+    const closing = host.querySelector<HTMLButtonElement>('[aria-label="공통 마무리 미리보기 · 읽기 전용"]')!;
+    await act(async () => closing.click()); await settle(500);
+    expect(closing.getAttribute("aria-current")).toBe("step");
+    expect(button("다음 →").disabled).toBe(true);
+    const fields = host.querySelector<HTMLElement>(".card-copy-fields")!;
+    expect(fields.textContent).toContain("@highscoop.official");
+    expect(fields.textContent).toContain("기존 마지막 본문은 그대로 보존됩니다");
+    expect(fields.querySelector("textarea, input, select")).toBeNull();
+    expect(button("AI로 템플릿 문구 제안받기").disabled).toBe(true);
+    expect(button("문구 저장").disabled).toBe(true);
+    expect(mocks.blob.mock.calls.at(-1)?.[2].body).toEqual({ version: 3, copy: original, page: 10, coverMode: "reuse" });
+    expect(mocks.api.mock.calls.some(([, options]) => options?.method === "PATCH" || options?.method === "POST")).toBe(false);
+
+    await click("← 이전");
+    expect(field("body").value).toBe(original.pages[8].body);
+    await input("body", "아홉 번째 본문만 직접 다듬었습니다."); await click("문구 저장");
+    expect(saved.copy.pages).toHaveLength(9);
+    expect(saved.copy.cover).toEqual(original.cover);
+    expect(saved.copy.pages.slice(0, 8)).toEqual(original.pages.slice(0, 8));
+    expect(saved.copy.pages[8]).toEqual({ ...original.pages[8], body: "아홉 번째 본문만 직접 다듬었습니다." });
+    expect(saved.copy.pages.some(page => page.id === "outro")).toBe(false);
+    expect(host.textContent).toContain("전체 11장");
+  });
+  it("keeps other brands' page count and final body editable even with a HighScoop template", async () => {
+    saved.copy.templateKey = "highscoop:news";
+    await render(createElement(CardCopyEditor, { channelId: 1, itemId: 9, writingContext: { channel: "news", channelName: "뉴스", caption: "", sourceLabel: "" } }));
+    expect(host.textContent).toContain("전체 5장");
+    expect(host.querySelector('[aria-label="공통 마무리 미리보기 · 읽기 전용"]')).toBeNull();
+    const last = host.querySelector<HTMLButtonElement>('[aria-label^="4번째 본문 문구 편집"]')!;
+    await act(async () => last.click()); await settle();
+    expect(field("body").value).toBe(saved.copy.pages[3].body);
+    expect(field("body").disabled).toBe(false);
+    expect(button("다음 →").disabled).toBe(true);
+  });
   it("shares the latest unsaved card text with the writing desk without saving or exposing private source notes", async () => {
     await render(createElement(CardCopyEditor, { channelId: 1, itemId: 9, writingContext: { channel: "highscoop", channelName: "HighScoop", caption: "현재 게시 캡션", sourceLabel: "공식 자료", memo: "기획 비공개 9144", studioCardId: 18 } }));
     await input("title", "직접 다듬은 표지 제목");
