@@ -179,6 +179,45 @@ describe("bounded Gemini recovery", () => {
     expect(mock).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    { message: "Quota exceeded for requests per minute per day, limit: 0" },
+    { details: [{ quotaId: "GenerateRequestsPerMinute", quotaValue: "0" }] },
+  ])("explains a zero allocation without claiming today's use or recommending a countdown (%j)", async error => {
+    const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { ...error, private: "gemini-unit-secret", details: [...(error.details ?? []), { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "3s" }] } }), { status: 429 }));
+    vi.stubGlobal("fetch", mock);
+    const result = await generateStudioText(input).catch(error => error as Error);
+    expect(result).toBeInstanceOf(Error);
+    if (!(result instanceof Error)) throw new Error("Expected a provider error");
+    expect(result.message).toContain("할당량이 0");
+    expect(result.message).toContain("오늘 사용하지 않았어도");
+    expect(result.message).not.toMatch(/기다려|일일 호출 한도에 도달|gemini-unit-secret/);
+    expect(mock).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["Daily quota exhausted", "일일 사용 한도", true],
+    ["Insufficient credits", "결제·크레딧 제한", false],
+    ["quota_exceeded", "할당량·결제 제한", true],
+  ] as const)("distinguishes %s without another request", async (message, expected, showDelay) => {
+    const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message } }), { status: 429, headers: { "Retry-After": "10" } }));
+    vi.stubGlobal("fetch", mock);
+    const result = await generateStudioText(input).catch(error => error as Error);
+    if (!(result instanceof Error)) throw new Error("Expected a provider error");
+    expect(result.message).toContain(expected);
+    expect(result.message.includes("최소 10초")).toBe(showDelay);
+    expect(mock).toHaveBeenCalledOnce();
+  });
+
+  it("does not mistake a nonzero fractional rate limit for zero allocation", async () => {
+    const mock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Requests per second limit: 0.5" } }), { status: 429, headers: { "Retry-After": "1" } })).mockResolvedValueOnce(response(draft));
+    vi.stubGlobal("fetch", mock);
+    const pending = generateStudioText(input);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject(draft);
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+
   it("returns a long Retry-After to the user instead of shortening it and sending again", async () => {
     const mock = vi.fn().mockResolvedValue(new Response(null, { status: 503, headers: { "Retry-After": "60" } }));
     vi.stubGlobal("fetch", mock);

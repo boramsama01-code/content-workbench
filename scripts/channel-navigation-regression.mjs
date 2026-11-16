@@ -3,6 +3,7 @@
 // Every API response is synthetic;
 // external requests are blocked, and no database, AI provider or social account is used.
 import assert from "node:assert/strict";
+import { aiCapacityFixture } from "./ai-capacity-fixture.mjs";
 import { closeChannelMenu, openChannelMenu, selectChannel } from './channel-picker.mjs';
 import { browserLayout } from "./browser-layout.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -89,6 +90,7 @@ function fixture() {
     else if (pathname === "/api/channels/3/today") data = { counts: { pendingReview: 1, draftsReady: 1 } };
     else if (pathname === "/api/status") data = { globalStop: false, workerConnected: true, integrations: { aiProvider: "gemini", gemini: true, openai: false, anthropic: false, flags: { dryRun: false, autoPublish: true } } };
     else if (pathname === "/api/studio/ai-status") data = ai;
+    else if (pathname === "/api/studio/ai-capacity") data = aiCapacityFixture(url, channels, ai);
     else if (pathname === "/api/canva/status") data = { connected: false };
     else if (pathname === "/api/studio/cards/25/canva-sync" && method === "GET") data = { binding: null, phase: "idle", cardVersion: studio().card.version, message: "이 콘텐츠에 연결된 Canva 디자인이 없습니다." };
     else if (pathname === "/api/studio/cards/25") data = studio();

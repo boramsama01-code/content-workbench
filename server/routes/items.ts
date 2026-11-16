@@ -538,7 +538,8 @@ itemRoutes.post(
     const { provider, templateKey, version, requestId } = parse(z.object({ version: zVersion.optional(), requestId: z.string().uuid().optional(), provider: z.enum(aiProviders).optional(), templateKey: z.string().min(1).max(40).optional() }).strict(), req.body ?? {});
     const logicalRequestId = requestId ?? randomUUID();
     if (templateKey) await resolveCardCopyStyle(templateKey, ch.id);
-    const ai = { summary: channelAiSelection(ch, "summary", { provider }), copy: channelAiSelection(ch, "copy"), familyPlan: familyExecutionPlan(ch, item.currentRevisionId ?? 0) };
+    const ai = { summary: channelAiSelection(ch, "summary", { provider }), copy: channelAiSelection(ch, "copy"),
+      familyPlan: familyExecutionPlan(ch, item.currentRevisionId ?? 0, null, provider ? { article_analysis: { provider } } : undefined) };
     const result = await runSourceGeneration(db, { type: "source_generate", itemId: item.id, channelId: ch.id, version: version ?? item.version, requestId: logicalRequestId, intent: { provider: provider ?? null, templateKey: templateKey ?? null }, configuration: ai, actor: actorOf(req) }, async () => {
       if (item.kind === "notice") {
         const [saved] = item.currentRevisionId ? await db.select({ payload: contentRevisions.payload }).from(contentRevisions).where(eq(contentRevisions.id, item.currentRevisionId)) : [];

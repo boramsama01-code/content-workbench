@@ -2,6 +2,7 @@
 // use the actual production renderer. No database, paid AI or social API is used.
 // Run after `npm run build`: node --import tsx scripts/news-editorial-regression.mjs
 import assert from "node:assert/strict";
+import { aiCapacityFixture } from "./ai-capacity-fixture.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -79,6 +80,7 @@ function fixture() {
     else if (pathname === "/api/channels/3/today") data = { counts: { pendingReview: 1, draftsReady: 1 } };
     else if (pathname === "/api/status") data = { globalStop: false, workerConnected: true, integrations: { aiProvider: "gemini", gemini: true, openai: true, anthropic: false, flags: { dryRun: true, autoPublish: false } } };
     else if (pathname === "/api/studio/ai-status") data = ai;
+    else if (pathname === "/api/studio/ai-capacity") data = aiCapacityFixture(url, channels, ai);
     else if (pathname === "/api/canva/status") data = { connected: state.canvaLibrary.connected };
     else if (pathname === "/api/canva/editorial/status") data = { configured: state.canvaLibrary.configured, connected: state.canvaLibrary.connected, autofill: state.canvaLibrary.autofill, capabilities: state.canvaLibrary.autofill ? ["autofill"] : [], ...(!state.canvaLibrary.autofill ? { capabilityStatus: "unavailable", reason: "capability_missing", message: "현재 연결한 Canva 계정·팀에서 자동 채우기를 사용할 수 없습니다. 원본 미리보기와 Canva 직접 편집은 사용할 수 있습니다." } : {}) };
     else if (pathname === "/api/canva/template-library") data = clone(state.canvaLibrary);
@@ -335,7 +337,7 @@ async function layoutFits(page, label) {
 }
 async function openBackground(page) {
   const editor = page.locator('.page-background-editor');
-  if (!await editor.evaluate(node => node.open)) await editor.locator('summary').click();
+  if (!await editor.evaluate(node => node.open)) await editor.locator(':scope > summary').click();
   return editor;
 }
 async function pasteBackground(page) {

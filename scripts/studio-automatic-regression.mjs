@@ -2,6 +2,7 @@
 // CI requires WebKit; local systems may fall back using WORKSPACE_BROWSER_EXECUTABLE.
 // All API responses, generated artwork and rendered output are synthetic; external URLs are blocked.
 import assert from 'node:assert/strict';
+import { aiCapacityFixture } from './ai-capacity-fixture.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { preview } from 'vite';
@@ -48,6 +49,7 @@ for(const width of widths){
    else if(p==='/api/channels')json=[ch];
    else if(p==='/api/channels/1/today')json={counts:{pendingReview:0}};
    else if(p==='/api/status')json={globalStop:false,workerConnected:true,integrations:{flags:{dryRun:true,autoPublish:false}}};
+   else if(p==='/api/studio/ai-capacity')json=aiCapacityFixture(url,[ch],{text:{openai:true,gemini:false,anthropic:false},image:true});
    else if(p==='/api/studio/cards')json={cards:[detail.card],notes:'',notesVersion:1,ai:{defaultProvider:'openai',text:{openai:true,gemini:false,anthropic:false},image:true}};
    else if(p==='/api/studio/cards/8/canva-sync'&&method==='GET')json={binding:null,phase:'idle',cardVersion:detail.card.version,message:'Isolated fixture: no Canva design connected.'};
    else if(p==='/api/studio/cards/8'){

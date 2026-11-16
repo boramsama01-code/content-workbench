@@ -1,6 +1,7 @@
 // Real production React screens with synthetic API fixtures. External requests
 // and all production writes are blocked; no paid generation is performed.
 import assert from "node:assert/strict";
+import { aiCapacityFixture } from "./ai-capacity-fixture.mjs";
 import { createRequire } from "node:module";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { preview } from "vite";
@@ -38,6 +39,7 @@ try {
       else if (p === "/api/studio/cards") data = { cards: [card, video], ai, notes: { notes: "", version: 1 }, trashCount: 0 };
       else if (/^\/api\/studio\/cards\/(9|20)$/.test(p) && method === "GET") data = { card: p.endsWith("/20") ? video : card, revisions: [], jobs: [], images: [] };
       else if (p === "/api/studio/ai-status") data = ai;
+      else if (p === "/api/studio/ai-capacity") data = aiCapacityFixture(url, [channel], ai);
       else if (p === "/api/studio/codex-writer/status") data = { configured:true,online:true,lastSeenAt:stamp,model:"gpt-6.1-sol",deviceName:"Browser fixture PC" };
       else if (p.startsWith("/api/studio/editorial-voice/") && method === "GET") data = { schemaVersion:1,profileRevision:0,rules:[],examples:[],updatedAt:null };
       else if (/\/studio\/cards\/\d+\/canva-sync$/.test(p) && method === "GET") data = { binding:null,phase:"idle",cardVersion:1,message:"검증용 디자인 미연결 상태" };
