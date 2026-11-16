@@ -1,4 +1,5 @@
 import { CoverCropPreview } from "./CoverCropPreview";
+import { SnsWritingWorkbench } from "./SnsWritingWorkbench";
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultPageDesigns, familyCardCopySchema, familyDialogueMetadataSchema, familyFieldDescriptors, familyFieldValue, FAMILY_PAGE_LABELS, type CardCopyV2, type ClaimRef, type FamilyDialogueMetadata, type FamilyFieldDescriptor, type FamilyPage, type FamilyPageId, type PageDesign, type ReviewFlag } from "@shared/familyDialogue";
@@ -511,6 +512,7 @@ export function FamilyDialogueEditor(props: CardCopyEditorProps & { initial: Fam
   return <section className="card-copy-editor family-dialogue-editor stack" aria-label="가족 대화 8장 카드 편집기">
     <div className="card-copy-heading"><div><span className="card-copy-kicker">가족 대화 · 8장</span><h3>카드 안의 문구와 디자인</h3><p>뉴스에서 출발해 한 가지 질문을 나눕니다. 선택한 장을 자세히 수정하고, 자동 제안은 확인한 뒤 적용하세요.</p></div><span className={`badge ${dirty ? "warn" : "ok"}`}>{saving ? "저장 중" : saveError ? "저장 실패" : dirty ? "미저장 변경" : `저장됨 · 버전 ${base.version}`}</span></div>
     <RecoveryNotice recovery={recovery} formatValue={value => copyText(value.copy, value)} />
+    {props.writingContext && <SnsWritingWorkbench channelName={props.writingContext.channelName} recoveryKey={`item:${channelId}:${itemId}`} revision={base.version} generationTarget={props.writingContext.studioCardId ? { id: props.writingContext.studioCardId, provider: base.ai?.copy.provider } : undefined} disabled={busy || aiBusy} content={{ ...props.writingContext, title: draft.copy.pages[0].id === "cover" ? draft.copy.pages[0].fields.headline : "카드뉴스", format: "카드뉴스", script: copyText(draft.copy, draft), panels: [], memo: props.writingContext.memo ?? "" }} />}
     {structureNotice && <div className="notice small row between" role="status"><span>{structureNotice}</span><button className="btn sm ghost" onClick={() => setStructureNotice(null)}>안내 닫기</button></div>}
     {conflict && <div className="notice warn stack" role="alert"><strong>다른 곳에서 저장한 버전이 있습니다. 현재 입력은 유지했습니다.</strong><details><summary>저장본과 현재 입력 비교</summary><div className="card-copy-compare"><pre>{conflict.copy.version === 2 ? copyText(conflict.copy, conflict) : "다른 형식으로 저장된 원고입니다."}</pre><pre>{copyText(draft.copy, draft)}</pre></div><button className="btn" disabled={busy} onClick={() => { if (conflict.copy.version === 2) { recovery.clear(); adopt(conflict as FamilyDialogueResponse); } else { recovery.clear(); qc.setQueryData(queryKey, conflict); } }}>서버 저장본 불러오기</button></details></div>}
     <div className="family-page-guide"><strong>페이지 구성</strong><span className="hint">장별 역할을 보여주는 배치도입니다. 페이지를 고르면 실제 원고를 편집할 수 있습니다.</span></div>

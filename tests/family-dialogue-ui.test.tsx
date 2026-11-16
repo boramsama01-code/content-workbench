@@ -99,6 +99,21 @@ async function connectEvidence(path: string, evidenceId: string) {
 }
 
 describe("family dialogue v2 editor", () => {
+  it("connects all eight current pages to the writing desk while preserving the unsaved editor and source privacy", async () => {
+    await render(createElement(CardCopyEditor, { channelId: 3, itemId: 28, writingContext: { channel: "news", channelName: "ALLigodang", caption: "현재 8장과 대조할 캡션", sourceLabel: "직접 확인한 기사", memo: "비공개 원문 메모 6302", studioCardId: 38 } }));
+    await input("fields.headline", "직접 다듬은 여덟 장 표지");
+    const desk = host.querySelector<HTMLElement>(".sns-writing-workbench")!;
+    const show = [...desk.querySelectorAll("button")].find(node => node.textContent === "프롬프트 보기")!;
+    await act(async () => show.click());
+    const prompt = desk.querySelector<HTMLTextAreaElement>("textarea[readonly]")!.value;
+    expect(prompt).toContain("직접 다듬은 여덟 장 표지");
+    expect(prompt).toContain("현재 8장과 대조할 캡션");
+    expect(prompt).not.toContain("비공개 원문 메모 6302");
+    expect(prompt).toContain("8.");
+    expect(saved.copy).toEqual(fresh().copy);
+    expect(mocks.api.mock.calls.some(([, options]) => options?.method === "POST" || options?.method === "PATCH")).toBe(false);
+    expect(mocks.api.mock.calls.some(([url]) => url === "/studio/cards/38")).toBe(false);
+  });
   it("uses eight role diagrams and renders only the selected manuscript page", async () => {
     await render();
     const navigation = host.querySelector('nav[aria-label="카드 페이지 선택"]')!;

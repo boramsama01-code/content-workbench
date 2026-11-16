@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { setTestEnv } from "./helpers";
+import { SNS_EDITORIAL_VERSION } from "../shared/snsEditorial";
 setTestEnv();
 const mock = vi.hoisted(() => ({ callTool: vi.fn() }));
 vi.mock("../server/services/llm", async original => ({ ...await original<object>(), callTool: mock.callTool }));
@@ -19,6 +20,9 @@ it.each([
   expect(JSON.stringify(result.promptTrace)).not.toContain(options.directive);
   expect(mock.callTool).toHaveBeenCalledOnce();
   expect(mock.callTool.mock.calls[0][0]).toMatchObject({ provider: "gemini", model: "gemini-2.5-flash", maxAttempts: 1, toolName });
+  expect(mock.callTool.mock.calls[0][0].system).toContain(SNS_EDITORIAL_VERSION);
+  if (toolName === "save_studio_caption") expect(mock.callTool.mock.calls[0][0].system).toContain("이번 범위는 캡션만");
+  if (toolName === "save_studio_panel") expect(mock.callTool.mock.calls[0][0].system).toContain("선택한 필드만");
 });
 it("retains truncated response evidence on the safe failure and changes the hash with prompt edits", async () => {
   mock.callTool.mockResolvedValue({ ok: false, kind: "parse", error: "safe incomplete result", provenance: { ...provenance, status: "truncated" } });

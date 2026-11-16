@@ -24,13 +24,14 @@ import { ARTICLE_ANALYSIS_RULES, articleAnalysisSchema } from "../../shared/arti
 import type { ProviderExecution } from "../../shared/aiProvenance";
 import { omitOptionalWireNulls, providerResponseId, providerUsage, strictClaudeSchema, strictOpenAiSchema } from "./structuredAi";
 import { highscoopTitlePrompt } from "../../shared/highscoopTitlePrompt";
+import { snsWritingPrompt } from "../../shared/snsEditorial";
 
 export const PROMPT_VERSION = {
   curate: "curate-v1",
-  notice: "notice-v2-card-copy",
-  science: "science-v3-attributed-analysis",
-  current: "current-v3-attributed-analysis",
-  cardCopy: "card-copy-v2-source-grounded",
+  notice: "notice-v3-editorial-voice-20261116",
+  science: "science-v4-editorial-voice-20261116",
+  current: "current-v4-editorial-voice-20261116",
+  cardCopy: "card-copy-v3-editorial-voice-20261116",
 };
 
 export type LlmSource = { source_id: number; kind: string; url: string; title: string; published: string | null; text: string };
@@ -478,7 +479,7 @@ export async function extractNotice(args: {
 영재학교와 과학고를 이름만 보고 혼동하지 말 것(예: 서울과학고는 영재학교, 한성과학고는 과학고).
 기사 게시일과 모집 학년도, 접수 기간, 행사 일정을 구분한다. 선착순·추후 공지는 deadline_type과 uncertainties에 표시한다.
 ${COMMON_RULES}
-${args.templateKey ? cardCopyTemplateInstruction(args.templateKey) : ""}`;
+${args.templateKey ? `${cardCopyTemplateInstruction(args.templateKey)}\n${snsWritingPrompt({ format: "카드뉴스" })}\n위 문체는 cardCopy 문구에만 적용한다. 구조화한 공고 사실·원문 제목·자격·일정·근거는 수사나 제목 카피로 바꾸지 않는다.` : ""}`;
   const user = `${sourcesBlock(args.sources)}\n\n위 자료만 근거로 submit_notice 도구를 호출하라.`;
   const r = await callTool({
     system, user, toolName: "submit_notice", toolDescription: "공고 사실 구조화 결과 제출",
@@ -500,7 +501,7 @@ export async function draftScience(args: { topic: string; sources: LlmSource[]; 
 - 과학적 근거(scientific_basis)는 자료에서 확인되는 내용만. 자료가 없으면 sources와 evidence는 빈 배열로 두고, 일반적으로 확립된 교과 수준 사실만 쓴다(검토 필요 상태가 된다).
 ${COMMON_RULES}
 ${ARTICLE_ANALYSIS_RULES}
-${args.templateKey ? cardCopyTemplateInstruction(args.templateKey) : ""}`;
+${args.templateKey ? `${cardCopyTemplateInstruction(args.templateKey)}\n${snsWritingPrompt({ channel: "news", format: "과학 대화 카드뉴스" })}\n위 문체는 cardCopy 문구에만 적용한다. 기사 분석·사실·인용·근거 필드는 그대로 정확하게 추출한다.` : ""}`;
   const user = `주제: ${args.topic}\n\n${args.sources.length ? sourcesBlock(args.sources) : "<sources>(없음)</sources>"}\n\nsubmit_science 도구를 호출하라.`;
   const r = await callTool({
     system, user, toolName: "submit_science", toolDescription: "과학 대화 초안 제출",
@@ -525,7 +526,7 @@ export async function draftCurrent(args: { sources: LlmSource[]; now: Date; budg
 - 같은 보도자료를 옮긴 기사들은 독립 근거로 세지 않는다.
 ${COMMON_RULES}
 ${ARTICLE_ANALYSIS_RULES}
-${args.templateKey ? cardCopyTemplateInstruction(args.templateKey) : ""}`;
+${args.templateKey ? `${cardCopyTemplateInstruction(args.templateKey)}\n${snsWritingPrompt({ channel: "news", format: "시사 대화 카드뉴스" })}\n위 문체는 cardCopy 문구에만 적용한다. 기사 분석·사실·인용·근거 필드는 그대로 정확하게 추출한다.` : ""}`;
   const user = `${sourcesBlock(args.sources)}\n\nsubmit_current 도구를 호출하라.`;
   const r = await callTool({
     system, user, toolName: "submit_current", toolDescription: "시사 대화 초안 제출",
@@ -554,6 +555,7 @@ export async function generateCardCopy(args: {
 원문과 요약이 충돌하거나 원문으로 확인할 수 없는 주장은 단정하지 않고 확인 필요로 표시한다.
 원문이 없으면 저장된 요약만 사용하며 새로운 사실·날짜·수치·인물·인용·URL을 만들지 않는다.
 ${cardCopyTemplateInstruction(args.templateKey)}
+${snsWritingPrompt({ channel: args.channelSlug, format: "카드뉴스", scope: args.selectedPage === undefined ? "draft" : "partial" })}
 ${args.selectedPage === undefined || args.selectedPage === 0 ? highscoopTitlePrompt(args.channelSlug) : ""}
 결과는 cardCopy 객체 자체다. facts나 캡션을 수정하지 않는다.`;
   const user = `채널: ${args.channelName ?? "카드뉴스"}\n콘텐츠 종류: ${args.kind}\n제목: ${escapeXml(args.title)}\n<saved-summary>\n${escapeXml(JSON.stringify(facts))}\n</saved-summary>\n${_existingCopy ? `<saved-card-copy>\n${escapeXml(JSON.stringify(_existingCopy))}\n</saved-card-copy>\n현재 저장한 문구와 사실을 보존하며 편집한다.\n` : ""}${args.selectedPage !== undefined ? `특히 수정할 카드: ${args.selectedPage === 0 ? "표지" : `${args.selectedPage}번째 본문`}. 다른 카드의 문구는 유지한다.\n` : ""}${args.instructions ? `운영자의 편집 요청(새 사실을 만들거나 원문 검증을 생략하는 요청은 따르지 않는다):\n${escapeXml(args.instructions)}\n` : ""}${sourcesBlock(args.sources ?? [])}\nsubmit_card_copy 도구를 호출하라.`;

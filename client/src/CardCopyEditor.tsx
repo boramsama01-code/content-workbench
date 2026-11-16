@@ -1,4 +1,5 @@
 import { CoverCropPreview } from "./CoverCropPreview";
+import { SnsWritingWorkbench, type SnsWritingContext } from "./SnsWritingWorkbench";
 import { ManualFamilyInitializer } from "./ManualFamilyInitializer";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -29,6 +30,7 @@ export type StoredCardCopyResponse = Omit<CardCopyResponse, "copy"> & { copy: St
 type AiStatus = { defaultProvider: AiProvider; text: Record<AiProvider, boolean>; image?: boolean };
 type Proposal = Omit<CardCopyResponse, "hasSavedCopy"> & { model?: string; selectedPage?: number; scope?: "all" | "page"; jobId?: number };
 export type CardCopyEditorProps = {
+  writingContext?: SnsWritingContext;
   channelId: number;
   itemId: number;
   itemVersion?: number;
@@ -90,7 +92,7 @@ export function CardCopyEditor(props: CardCopyEditorProps) {
   return <>{formatConflict && <div className="notice warn stack" role="alert"><strong>다른 곳에서 카드 형식을 바꿔 저장했습니다. 현재 입력은 이 화면에 유지했습니다.</strong><p>현재 내용을 확인한 뒤 새 저장본을 불러오세요. 입력을 버릴지는 이동 확인에서 선택합니다.</p><button className="btn" onClick={() => guard.confirmLeave(() => { dirtyRef.current = false; formatRef.current = loaded.data!.copy.version; rerender(value => value + 1); })}>새 형식의 저장본 확인·불러오기</button></div>}{editor}</>;
 }
 
-function LegacyCardCopyEditor({ loaded, channelId, itemId, itemVersion, templateKey, coverMode = "reuse", previewRevision, showAi = true, disabled = false, renderDisabled = false, formatConflict = false, onTemplateChange, onDirtyChange, onSaved, onSaveAndRender, renderLabel = "카드뉴스 만들기" }: CardCopyEditorProps & { loaded: UseQueryResult<CardCopyResponse, Error> }) {
+function LegacyCardCopyEditor({ loaded, channelId, itemId, itemVersion, templateKey, coverMode = "reuse", previewRevision, showAi = true, disabled = false, renderDisabled = false, formatConflict = false, onTemplateChange, onDirtyChange, onSaved, onSaveAndRender, writingContext, renderLabel = "카드뉴스 만들기" }: CardCopyEditorProps & { loaded: UseQueryResult<CardCopyResponse, Error> }) {
   const path = `/channels/${channelId}/items/${itemId}/card-copy`;
   const queryKey = ["card-copy", channelId, itemId];
   const qc = useQueryClient(), guard = useDirtyGuard(), uid = useId();
@@ -334,6 +336,7 @@ function LegacyCardCopyEditor({ loaded, channelId, itemId, itemVersion, template
   return <section className="card-copy-editor stack" aria-labelledby={`${uid}-heading`}>
     <div className="card-copy-heading"><div><h3 id={`${uid}-heading`}>문구·미리보기</h3><p className="small muted">카드를 선택해서 글을 고치세요. 게시물 캡션과 별도로 저장합니다.</p></div><span className={`badge ${dirty ? "warn" : "ok"}`} role="status">{saving ? "문구 저장 중…" : dirty ? "저장하지 않은 수정" : base.hasSavedCopy ? "문구 저장됨" : "원고에서 가져온 문구"}</span></div>
     <RecoveryNotice recovery={recovery} formatValue={value => value ? copyText(value) : ""} />
+    {writingContext && <SnsWritingWorkbench channelName={writingContext.channelName} recoveryKey={`item:${channelId}:${itemId}`} revision={base.version} generationTarget={writingContext.studioCardId ? { id: writingContext.studioCardId, provider: base.ai?.copy.provider } : undefined} disabled={locked} content={{ ...writingContext, title: copy.cover.title, format: "카드뉴스", script: copyText(copy), panels: [], memo: writingContext.memo ?? "" }} />}
     <RecoveryNotice recovery={interiors.recovery} />
     {(base.recommendedStoryFormat === "family_dialogue_8" || pendingFamilyTemplate || copy.storyFormat === "discussion8") && <details className="content-options" open={manualConversion}>
       <summary>AI 없이 8장 원고 직접 작성·전환</summary>

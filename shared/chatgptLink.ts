@@ -1,5 +1,6 @@
 import { highscoopTitlePrompt } from "./highscoopTitlePrompt";
 import { CAPTION_EMOJI_GUIDE } from "./captionStyle";
+import { snsWritingPrompt } from "./snsEditorial";
 
 /** Keep oversized prompts intact for the clipboard fallback; never silently truncate. */
 export const CHATGPT_URL_LIMIT = 24_000;
@@ -35,6 +36,7 @@ export function itemChatGptPrompt({ title, kind, channelSlug, source }: ItemProm
   return [
     "우주펭귄상회 스튜디오의 콘텐츠 작성 요청입니다. 설명 대신 완성된 한국어 초안을 바로 보여 주세요.",
     task,
+    snsWritingPrompt({ channel: channelSlug, format: "카드뉴스" }),
     highscoopTitlePrompt(channelSlug, "manual"),
     "먼저 읽기 쉬운 초안을 보여 주고, 이어서 카드뉴스 4장의 제목·본문(각 140자 이내)과 게시용 캡션을 작성하세요. 원문에서 직접 인용한 근거 구절과 출처 URL도 표시하세요.",
     CAPTION_EMOJI_GUIDE,

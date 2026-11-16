@@ -1,5 +1,6 @@
 import { WorkspaceSkeleton } from "../WorkspaceSkeleton";
 import { StudioWorkingPreview } from "../StudioWorkingPreview";
+import { SnsWritingWorkbench } from "../SnsWritingWorkbench";
 import { ManualFamilyInitializer } from "../ManualFamilyInitializer";
 import { StudioHistoryEntry } from "../StudioHistoryEntry";
 import { emptyVideoProject } from "@shared/videoProject";
@@ -482,6 +483,7 @@ function StudioEditor({ data, refresh }: { data: Detail; refresh: () => unknown 
         <label className="field">기획·참고 자료<textarea disabled={busy} value={form.memo} rows={3} maxLength={12000} onChange={e => change("memo", e.target.value)} placeholder="이야기의 핵심이나 확인한 자료를 적어 주세요. 이미 컷을 썼다면 비워 두어도 됩니다." /></label>
         <label className="field">형식<select id="studio-format" disabled={busy} value={form.format} onChange={e => change("format", e.target.value as Format)}>{!formats.includes(form.format) && <option value={form.format}>{form.format} · 기획용</option>}{formats.map(f => <option key={f}>{f}</option>)}</select></label>
         <label className="field">전체 원고<textarea aria-label="전체 원고" disabled={busy} value={form.script} rows={8} maxLength={24000} onChange={e => change("script", e.target.value)} placeholder="전체 원고가 없어도 장면·대사에서 바로 그림을 만들 수 있습니다." /></label>
+        <SnsWritingWorkbench content={form} channelName={channelName(form.channel)} recoveryKey={`studio:${base.id}`} revision={base.version} generationTarget={{ id: base.id, version: base.version, provider }} onApply={{ title: text => change("title",text), script: text => change("script",text), caption: text => change("caption",text) }} disabled={busy || working || newer} />
         <WorkModeControl mode={textMode === "api" ? "auto" : "manual"} onChange={mode => setTextMode(mode === "auto" ? "api" : "chatgpt")} disabled={busy} automaticUnavailable={settings.data?.ai.text[provider] === false ? `${aiProviderLabels[provider]} 연결이 필요합니다. 연결 후 앱 안에서 원고를 만들 수 있습니다.` : null} onConfigure={() => guard.confirmLeave(() => navigate(`/connections?service=${provider}`))} />
         <div className="stack" hidden={textMode !== "api"} data-testid="studio-api-writing">
           <label className="field">작성 AI<select value={provider} disabled={busy || working} onChange={e => setProviderOverride({ channel: form.channel, provider: e.target.value as AiProvider })}><option value="gemini">Gemini</option><option value="openai">GPT · OpenAI</option><option value="anthropic">Claude</option></select><span className="hint">{providerOverride?.channel === form.channel ? "이 작업에서 선택한 AI입니다. 채널 기본값은 설정에서 바꿀 수 있습니다." : `채널의 카드 문구 AI를 사용합니다${channelAi?.effectiveAiSettings?.copy.model ? ` · ${channelAi.effectiveAiSettings.copy.model}` : ""}.`}</span></label>

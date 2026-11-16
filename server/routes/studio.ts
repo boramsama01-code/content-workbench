@@ -29,6 +29,7 @@ import { STUDIO_CHARACTERS } from "../../shared/studioCharacters";
 import { FINAL_POSE_VERSION, POSE_ASSET_VERSIONS } from "../../shared/studioFinalAssets";
 import { studioFinalAsset } from "../services/studioFinalAssets";
 import { instagramOAuthRoutes } from "./instagramOAuth";
+import { snsEditorialRoutes } from "./snsEditorial";
 import { studioPublicationDraftSaveSchema } from "../../shared/publicationDraft";
 import { getStudioPublicationDraft, saveStudioPublicationDraft } from "../services/publicationDraft";
 
@@ -39,6 +40,7 @@ export const studioRoutes = Router();
 studioRoutes.use("/studio", (_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
 studioRoutes.use(zipImportRoutes);
 studioRoutes.use(instagramOAuthRoutes);
+studioRoutes.use(snsEditorialRoutes);
 // Mounted behind the same operator-session middleware as all studio routes.
 studioRoutes.get("/studio/brand-assets/:asset", ah(async (req, res) => {
   const asset = registeredProfileAsset(req.params.asset);
