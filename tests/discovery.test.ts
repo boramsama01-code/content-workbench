@@ -273,7 +273,7 @@ describe("수집 실행 안의 자동 발굴", () => {
     const { agent, csrf } = await login(app);
     const H = { "x-csrf-token": csrf };
     const bad = await agent.put(`/api/channels/1/discovery`).set(H).send({ enabled: true, queries: ["a"], picksPerRun: 3, autoDraft: true });
-    expect(bad.status).toBe(400); // 공고 채널에는 없음
+    expect(bad.status).toBe(200); // 하이스쿱에서도 뉴스 브리핑을 설정할 수 있음
     const s = await agent.put(`/api/channels/${SCIENCE}/discovery`).set(H).send({ enabled: true, queries: ["  블랙홀 ", "블랙홀", "백신 연구"], picksPerRun: 2, autoDraft: false });
     expect(s.status).toBe(200);
     expect(s.body.discovery).toEqual({ enabled: true, queries: ["블랙홀", "백신 연구"], picksPerRun: 2, autoDraft: false });

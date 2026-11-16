@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api, setCsrf } from "./api";
 import { enterFromPrivateLink } from "./privateLink";
-import type { Channel } from "@shared/schema";
+import type { Channel as StoredChannel } from "@shared/schema";
+type Channel = StoredChannel & { legacyChannelIds?: number[]; legacyStudioKeys?: string[] };
 import { activateDraftRecoveryScope } from "./draftRecovery";
 
 /* ───────────── 인증 ───────────── */
@@ -60,8 +61,12 @@ export function ChannelProvider({ children }: { children: ReactNode }) {
   const guard = useDirtyGuard();
   const [path, navigate] = useLocation();
   // Channel-aware lists keep their section; editors/settings return to the selected content list.
-  const selected: "all" | number =
-    stored !== null && stored !== "all" && channels.some((c) => c.id === stored) ? stored : "all";
+  const redirected = typeof stored === "number" ? channels.find(channel => channel.legacyChannelIds?.includes(stored)) : undefined;
+  const selected: "all" | number = redirected?.id ??
+    (stored !== null && stored !== "all" && channels.some((c) => c.id === stored) ? stored : "all");
+  useEffect(() => {
+    if (redirected) { setSelected(redirected.id); try { localStorage.setItem("spacepenguin.channel", String(redirected.id)); } catch {} }
+  }, [redirected?.id]);
   const select = useCallback(
     (v: "all" | number) => {
       if (v === selected || (v !== "all" && !channels.some(c => c.id === v))) return;

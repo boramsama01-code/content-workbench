@@ -1,4 +1,5 @@
 import { creativeProfileFor } from "../../shared/creativeProfile";
+import { studioChannelRecord } from "./channelRedirects";
 import { currentTemplateDefault } from "../../shared/currentTemplateDefaults";
 import { validSubcategory } from "../../shared/channelCategories";
 import { lockStudioPublication, invalidateStudioPublication } from "./studioPublicationState";
@@ -118,7 +119,7 @@ export async function validateStudioImages(db: DB, cardId: number, content: Stud
   if (own.length !== ids.length) throw new HttpError(400, "이 콘텐츠에 속한 이미지만 사용할 수 있습니다.");
 }
 export async function validateStudioChannel(db: DB, key: string, requireActive = true) {
-  const [ch] = await db.select().from(channels).where(eq(channels.slug, channelSlug(key))).for("share");
+  const ch = await studioChannelRecord(db, key);
   if (!ch) throw new HttpError(400, normalizeStudioChannel(key) === "highscoop" ? "Highscoop 기본 채널을 먼저 추가해 주세요." : "채널을 먼저 추가해 주세요.");
   if (requireActive && !ch.active) throw new HttpError(409, "보관된 채널입니다. 채널을 복원한 뒤 새 작업을 시작하세요.");
   return ch;
@@ -146,6 +147,7 @@ export async function createStudioCard(db: DB, content: StudioContent, actor: st
       return studioCardDto(card);
     };
     const resolvedChannel = await validateStudioChannel(tx as unknown as DB, content.channel);
+    if (normalizeStudioChannel(content.channel) !== normalizeStudioChannel(resolvedChannel.slug)) content = { ...content, channel: normalizeStudioChannel(resolvedChannel.slug), subcategory: content.subcategory || "뉴스" };
     const [ch] = await tx.select().from(channels).where(eq(channels.id,resolvedChannel.id)).for("share");
     if (!ch?.active) throw new HttpError(409, "보관된 채널입니다. 복원한 뒤 새 작업을 시작하세요.");
     if (!creativeProfileFor(ch).formats.includes(content.format)) throw new HttpError(400, "이 채널에서 허용하지 않은 콘텐츠 형식입니다. 채널 제작 설정을 확인해 주세요.");
@@ -194,6 +196,11 @@ export async function saveStudioCard(db: DB, cardId: number, version: number, pa
     assertStudioActive(current);
     if (current.version !== version) conflict(studioCardDto(current));
     await invalidateStudioPublication(tx as unknown as DB, current);
+    if (patch.channel && patch.channel !== current.content.channel) {
+      const owner = await validateStudioChannel(tx as unknown as DB, patch.channel);
+      const canonical = normalizeStudioChannel(owner.slug);
+      if (canonical !== normalizeStudioChannel(patch.channel)) patch = { ...patch, channel: canonical, subcategory: "뉴스" };
+    }
     const content = parse(studioContentSchema, { ...current.content, ...patch, ...(patch.channel && patch.channel !== current.content.channel && patch.subcategory === undefined ? { subcategory: "" } : {}) });
     if (current.importedMeta?.studioPublication && patch.channel && patch.channel !== current.content.channel) throw new HttpError(409, "발행 준비한 콘텐츠의 채널은 바꿀 수 없습니다. 다른 채널용 작업을 새로 만들어 주세요.");
     if (patch.channel && patch.channel !== current.content.channel) await validateStudioChannel(tx as unknown as DB, content.channel);

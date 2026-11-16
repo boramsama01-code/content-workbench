@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z, type ZodType } from "zod";
 import { getDb } from "../db";
 import { appSettings, channels, type Channel } from "../../shared/schema";
+import { resolveCanonicalChannelId } from "../services/channelRedirects";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public extra?: Record<string, unknown>) {
@@ -33,10 +34,7 @@ export function intParam(v: unknown, name = "id"): number {
 /** 쓰기 작업은 반드시 하나의 채널을 명시해야 한다 */
 export async function loadChannel(cid: unknown): Promise<Channel> {
   if (cid === "all") throw new HttpError(400, "'전체' 보기에서는 쓰기 작업을 할 수 없습니다. 채널을 하나 선택하세요.");
-  let id = intParam(cid, "channelId");
-  const [redirects] = await getDb().select().from(appSettings).where(eq(appSettings.key, "channel_redirects"));
-  const target = (redirects?.value as Record<string, number> | undefined)?.[id];
-  if (typeof target === "number" && Number.isInteger(target) && target > 0) id = target;
+  const id = await resolveCanonicalChannelId(getDb(), intParam(cid, "channelId"));
   const [ch] = await getDb().select().from(channels).where(eq(channels.id, id));
   if (!ch) throw new HttpError(404, "채널을 찾을 수 없습니다.");
   return ch;

@@ -1,0 +1,103 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeEach, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { appSettings, approvals, channels, contentItems, contentRevisions, destinations, deliveries, jobs, mediaAssets, searchRules, sourceDocuments, studioCards } from "../shared/schema";
+import { createFamilyProviderMock } from "./fixtures/familyProvider";
+import { editorialSource } from "./fixtures/newsEditorial";
+import { familyEvidenceRecords } from "../shared/familyEvidenceDb";
+import { familyManualCreateSchema } from "../shared/familyManual";
+import { familyDialogueCardFixture } from "./fixtures/familyDialogueCard";
+import { familyEvidenceFixture } from "./fixtures/familyEvidence";
+import { kstDay } from "../shared/collection";
+import { login, resetDb, setTestEnv, naverResponse } from "./helpers";
+setTestEnv();
+const {getDb,closeDb}=await import("../server/db");
+const {consolidateHighscoopNews}=await import("../server/services/highscoopNewsConsolidation");
+const {initializeManualFamily}=await import("../server/services/familyManual");
+const {familyMetadataFromPayload}=await import("../server/services/familyEditorial");
+const {loadFamilyEvidence}=await import("../server/services/familyEvidence");
+const {runCollect}=await import("../server/worker/collect");
+const {createApp}=await import("../server/app");
+beforeEach(resetDb); afterAll(closeDb);
+function manualBody(){const e=familyEvidenceFixture();return familyManualCreateSchema.parse({requestId:randomUUID(),title:"뉴스를 교육과 연결한 원고",copy:familyDialogueCardFixture(),source:{title:"제공 원문",text:e.snapshot.sources[0].text},factBindings:e.analysis.facts.map((fact,index)=>({fieldPath:`pages.news_summary.fields.facts.${index}`,excerpt:fact.evidenceExcerpt,claimType:fact.claimType,speaker:fact.speaker,timeScope:fact.timeScope,conditions:fact.conditions})),confirmed:true});}
+it("moves source work and immutable evidence, keeps old links and Canva versions, and retires the old account",async()=>{
+  const db=getDb(),body=manualBody(),saved=await initializeManualFamily(db,3,body,"test");
+  const [oldItem]=await db.select().from(contentItems).where(eq(contentItems.id,saved.itemId));
+  const [oldCard]=await db.select().from(studioCards).where(eq(studioCards.id,saved.studioCardId));
+  // The visual brand may already have been changed while source ownership is still old.
+  await db.update(studioCards).set({content:{...oldCard.content,channel:"highscoop"}}).where(eq(studioCards.id,oldCard.id));
+  const [revision]=await db.select().from(contentRevisions).where(eq(contentRevisions.id,saved.revisionId));
+  const evidenceBefore=await db.select().from(familyEvidenceRecords).where(eq(familyEvidenceRecords.contentItemId,oldItem.id));
+  await db.insert(contentItems).values({channelId:1,kind:"notice",title:"같은 원문의 다른 모집 원고",primarySourceId:oldItem.primarySourceId});
+  const [oldDestination,newDestination]=await db.insert(destinations).values([{channelId:3,platform:"instagram",label:"계정",enabled:true},{channelId:1,platform:"instagram",label:"계정",enabled:true}]).returning();
+  const [asset]=await db.insert(mediaAssets).values({channelId:3,contentItemId:oldItem.id,revisionId:revision.id,kind:"card",sha256:"merge-fixture",width:1080,height:1350,bytes:Buffer.from("fixture")}).returning();
+  const [approval]=await db.insert(approvals).values({channelId:3,contentItemId:oldItem.id,revisionId:revision.id,mediaAssetId:asset.id,cardSha256:asset.sha256,captions:{instagram:"확인한 문구",telegram:""},scheduledAt:new Date(),approvedBy:"test"}).returning();
+  const identity={version:1 as const,destinationId:oldDestination.id,destinationVersion:1,platform:"instagram",label:"계정",accountId:"old-account",username:"old-brand",verifiedAt:new Date().toISOString()};
+  const [delivery]=await db.insert(deliveries).values({channelId:3,approvalId:approval.id,destinationId:oldDestination.id,status:"scheduled",destinationSnapshot:identity}).returning();
+  await db.insert(appSettings).values({key:`studio_canva_sync:${oldCard.id}`,value:{kind:"studio_canva_binding",lastStudioVersion:oldCard.version,sourceVersion:oldItem.version,sourceRevisionId:revision.id}});
+  expect(await consolidateHighscoopNews(db)).toBe(true);expect(await consolidateHighscoopNews(db)).toBe(false);
+  const [item]=await db.select().from(contentItems).where(eq(contentItems.id,oldItem.id));
+  const [card]=await db.select().from(studioCards).where(eq(studioCards.id,oldCard.id));
+  expect(item).toMatchObject({channelId:1,subcategory:"뉴스",kind:"current_dialogue",currentRevisionId:revision.id});
+  expect(card.content).toMatchObject({channel:"highscoop",subcategory:"뉴스"});
+  const metadata=familyMetadataFromPayload(revision.payload)!;
+  const evidence=await loadFamilyEvidence(db,item,metadata.evidenceBinding);
+  expect(evidence.snapshot.channelId).toBe(1);expect(evidence.evidenceSet.channelId).toBe(1);
+  const evidenceAfter=await db.select().from(familyEvidenceRecords).where(eq(familyEvidenceRecords.contentItemId,item.id));
+  expect(evidenceAfter.map(row=>row.payload)).toEqual(evidenceBefore.map(row=>row.payload));
+  expect(evidenceAfter.every(row=>row.channelId===3)).toBe(true);
+  expect((await db.select().from(contentRevisions).where(eq(contentRevisions.id,revision.id)))[0].payload).toEqual(revision.payload);
+  expect((await db.select().from(destinations).where(eq(destinations.id,oldDestination.id)))[0].enabled).toBe(false);
+  expect((await db.select().from(destinations).where(eq(destinations.id,newDestination.id)))[0].enabled).toBe(true);
+  expect((await db.select().from(deliveries).where(eq(deliveries.id,delivery.id)))[0]).toMatchObject({status:"cancelled",destinationSnapshot:identity});
+  const [binding]=await db.select().from(appSettings).where(eq(appSettings.key,`studio_canva_sync:${oldCard.id}`));
+  expect(binding.value).toMatchObject({lastStudioVersion:card.version,sourceVersion:item.version,sourceRevisionId:revision.id});
+  expect((await initializeManualFamily(db,1,body,"test")).itemId).toBe(item.id);
+  const {agent}=await login(createApp()),detail=await agent.get(`/api/channels/3/items/${item.id}`),directory=await agent.get("/api/channels");
+  expect(detail.status).toBe(200);expect(detail.body.item.channelId).toBe(1);
+  expect(directory.body.some((row:{id:number})=>[2,3].includes(row.id))).toBe(false);
+  expect(directory.body.find((row:{id:number})=>row.id===1)).toMatchObject({categories:expect.arrayContaining(["뉴스"]),legacyChannelIds:expect.arrayContaining([2,3])});
+});
+it("rolls the merge back while work is running",async()=>{
+  const db=getDb();await db.insert(jobs).values({channelId:3,type:"source_generate",status:"running"});
+  await expect(consolidateHighscoopNews(db)).rejects.toThrow("실행 중");
+  expect((await db.select().from(channels).where(eq(channels.id,3)))[0].active).toBe(true);
+  expect(await db.select().from(appSettings).where(eq(appSettings.key,"highscoop_news_consolidated_v1"))).toHaveLength(0);
+});
+it("collects ordinary news in HighScoop/news without recruitment filtering or paid generation",async()=>{
+  const db=getDb(),[channel]=await db.select().from(channels).where(eq(channels.id,1));
+  await db.update(channels).set({categories:["뉴스","중등입시"],budget:{...channel.budget,naverCallsPerRun:2,fetchCallsPerRun:0,fetchTargetsPerRun:0,discovery:{enabled:false,autoDraft:false}}}).where(eq(channels.id,1));
+  await db.insert(searchRules).values({channelId:1,query:"과학 기술",normalizedQuery:"과학 기술",endpoint:"news",subcategory:"뉴스",enabled:true});
+  vi.stubEnv("NAVER_CLIENT_ID","fixture");vi.stubEnv("NAVER_CLIENT_SECRET","fixture");
+  const search=vi.fn().mockResolvedValue(naverResponse([{title:"AI와 환경 정책, 서로 다른 판단 기준",link:"https://news.example/education",originallink:"https://news.example/education",description:"청소년과 부모가 근거를 읽고 나눌 최신 이슈",pubDate:new Date().toUTCString()}]));
+  try{await runCollect(db,1,{trigger:"manual",subcategory:"뉴스",collectionOnly:true,naverFetch:search});}finally{vi.unstubAllEnvs();}
+  const found=await db.select().from(contentItems).where(eq(contentItems.title,"AI와 환경 정책, 서로 다른 판단 기준"));
+  expect(found).toHaveLength(1);expect(found[0]).toMatchObject({channelId:1,kind:"current_dialogue",subcategory:"뉴스",scheduleStatus:"not_applicable",excluded:false});
+  await db.insert(contentItems).values({channelId:1,kind:"notice",subcategory:"중등입시",title:"뉴스에 섞이면 안 되는 모집 공고",origin:"collected"});
+  await db.insert(searchRules).values({channelId:1,query:"중학교 모집",normalizedQuery:"중학교 모집",endpoint:"news",subcategory:"중등입시",enabled:true});
+  const {agent}=await login(createApp());
+  const scoped=await agent.get("/api/collection/overview").query({channelId:1,date:kstDay(),subcategory:"뉴스"});
+  expect(scoped.status,JSON.stringify(scoped.body)).toBe(200);
+  expect(scoped.body.channels[0]).toMatchObject({newItems:1,pending:1,queries:1,discoveryQueries:0,boards:0,profile:null,categories:[{label:"뉴스",newItems:1}]});
+  const all=await agent.get("/api/collection/overview").query({channelId:1,date:kstDay()});
+  expect(all.status).toBe(200);expect(all.body.channels[0]).toMatchObject({newItems:2,pending:2});
+  expect(all.body.channels[0].queries).toBeGreaterThan(scoped.body.channels[0].queries);
+});
+it("generates a HighScoop education-news deck through GPT using the news template and common brand",async()=>{
+  const db=getDb(),source=editorialSource(),provider=createFamilyProviderMock();
+  vi.stubEnv("OPENAI_API_KEY","test-not-a-real-key");vi.stubEnv("OPENAI_MODEL","gpt-news-test");vi.stubEnv("GEMINI_API_KEY","");vi.stubGlobal("fetch",vi.fn(provider.fetch));
+  try{
+    const [document]=await db.insert(sourceDocuments).values({normalizedUrl:"https://example.com/highscoop-news",originalUrl:"https://example.com/highscoop-news",title:source.title,kind:"news",fetchStatus:"ok",fetchedText:source.text}).returning();
+    const [item]=await db.insert(contentItems).values({channelId:1,kind:"current_dialogue",subcategory:"뉴스",title:source.title,primarySourceId:document.id,relevance:"relevant"}).returning();
+    const {agent,csrf}=await login(createApp());
+    const response=await agent.post(`/api/channels/1/items/${item.id}/generate`).set("x-csrf-token",csrf).send({version:item.version,requestId:randomUUID(),provider:"openai"});
+    expect(response.status,JSON.stringify(response.body)).toBe(200);
+    const [fresh]=await db.select().from(contentItems).where(eq(contentItems.id,item.id));
+    const [revision]=await db.select().from(contentRevisions).where(eq(contentRevisions.id,fresh.currentRevisionId!));
+    expect(revision.payload.cardCopy).toMatchObject({version:2,templateKey:"set:n03"});
+    const copy=revision.payload.cardCopy as {pages:Array<{id:string;fields:Record<string,unknown>}>};
+    expect(copy.pages.find(page=>page.id==="outro")?.fields.brandName).toBe("HighScoop");
+    expect(provider.calls.find(call=>call.stage==="article_analysis")?.url).toBe("https://api.openai.com/v1/responses");
+    expect(provider.calls.map(call=>call.stage)).toContain("image_generation");
+  }finally{vi.unstubAllEnvs();vi.unstubAllGlobals();}
+});

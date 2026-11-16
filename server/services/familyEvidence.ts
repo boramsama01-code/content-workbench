@@ -30,7 +30,7 @@ export function familyEvidenceView(bundle: FamilyEvidenceBundle): FamilyEvidence
 
 export async function putFamilyEvidence<T extends Record<string, unknown>>(db: DB, input: { id: string; itemId: number; channelId: number; kind: "source_snapshot" | "source_analysis" | "resource_research" | "evidence_set"; fingerprint: string; sourceSnapshotId?: string; payload: T }): Promise<T> {
   await db.insert(familyEvidenceRecords).values({ id: input.id, contentItemId: input.itemId, channelId: input.channelId, kind: input.kind, fingerprint: input.fingerprint, sourceSnapshotId: input.sourceSnapshotId, payload: input.payload }).onConflictDoNothing();
-  const [saved] = await db.select().from(familyEvidenceRecords).where(and(eq(familyEvidenceRecords.channelId, input.channelId), eq(familyEvidenceRecords.contentItemId, input.itemId), eq(familyEvidenceRecords.kind, input.kind), eq(familyEvidenceRecords.fingerprint, input.fingerprint)));
+  const [saved] = await db.select().from(familyEvidenceRecords).where(and(inArray(familyEvidenceRecords.channelId, await ownedChannelLineage(db, input.channelId)), eq(familyEvidenceRecords.contentItemId, input.itemId), eq(familyEvidenceRecords.kind, input.kind), eq(familyEvidenceRecords.fingerprint, input.fingerprint)));
   if (!saved) throw new HttpError(409, "근거 버전을 저장하지 못했습니다. 기존 원고는 유지했습니다.");
   return saved.payload as T;
 }
@@ -72,7 +72,7 @@ export async function createFamilyEvidenceSet(db: DB, item: typeof contentItems.
 
 export async function loadFamilyEvidence(db: DB, item: { id: number; channelId: number }, binding: EvidenceBinding): Promise<FamilyEvidenceBundle> {
   const ids = [binding.evidenceSetId, binding.sourceSnapshotId, binding.sourceAnalysisId, ...(binding.resourceResearchId ? [binding.resourceResearchId] : [])];
-  const rows = await db.select().from(familyEvidenceRecords).where(and(eq(familyEvidenceRecords.contentItemId, item.id), eq(familyEvidenceRecords.channelId, item.channelId), inArray(familyEvidenceRecords.id, ids)));
+  const rows = await db.select().from(familyEvidenceRecords).where(and(eq(familyEvidenceRecords.contentItemId, item.id), inArray(familyEvidenceRecords.channelId, await ownedChannelLineage(db, item.channelId)), inArray(familyEvidenceRecords.id, ids)));
   const read = (id: string, kind: string) => {
     const row = rows.find(value => value.id === id && value.kind === kind);
     if (!row) throw new HttpError(409, "이 원고에 연결된 고정 근거 묶음을 찾을 수 없습니다. 다른 콘텐츠의 근거는 사용할 수 없습니다.");
@@ -84,8 +84,10 @@ export async function loadFamilyEvidence(db: DB, item: { id: number; channelId: 
   const research = researchPayload ? resourceResearchSchema.parse(researchPayload.data) : null;
   const researchedSources = researchPayload && Array.isArray(researchPayload.sources) ? researchPayload.sources as EvidenceSource[] : [];
   const evidenceSet = evidenceSetSchema.parse(read(binding.evidenceSetId, "evidence_set"));
-  if (analysis.sourceSnapshotId !== snapshot.id || evidenceSet.sourceSnapshotId !== binding.sourceSnapshotId || evidenceSet.sourceAnalysisId !== binding.sourceAnalysisId || evidenceSet.resourceResearchId !== binding.resourceResearchId || evidenceSet.itemId !== item.id || evidenceSet.channelId !== item.channelId) throw new HttpError(409, "근거 묶음의 원문·분석·자료 버전이 서로 맞지 않습니다.");
-  return { snapshot, analysis, research, evidenceSet, researchedSources };
+  const snapshotOwner = await resolveCanonicalChannelId(db, snapshot.channelId), evidenceOwner = await resolveCanonicalChannelId(db, evidenceSet.channelId);
+  if (analysis.sourceSnapshotId !== snapshot.id || snapshot.itemId !== item.id || snapshotOwner !== item.channelId || evidenceSet.sourceSnapshotId !== binding.sourceSnapshotId || evidenceSet.sourceAnalysisId !== binding.sourceAnalysisId || evidenceSet.resourceResearchId !== binding.resourceResearchId || evidenceSet.itemId !== item.id || evidenceOwner !== item.channelId) throw new HttpError(409, "근거 묶음의 원문·분석·자료 버전이 서로 맞지 않습니다.");
+  // Old evidence is immutable. Normalize only the owned read view through an explicit channel redirect.
+  return { snapshot: { ...snapshot, channelId: item.channelId }, analysis, research, evidenceSet: { ...evidenceSet, channelId: item.channelId }, researchedSources };
 }
 
 function fieldText(copy: CardCopyV2, pageId: string, relative: string) {
@@ -144,3 +146,4 @@ export function validateFamilyEvidenceReferences(copy: CardCopyV2, bundle: Famil
   if (plan && parentGuide && parentGuide.coreQuestion !== plan.coreQuestion) flags.push({ path: "parentGuide.coreQuestion", code: "question_mismatch", message: "부모 안내와 확정 중심 질문을 일치시켜 주세요." });
   return flags;
 }
+import { resolveCanonicalChannelId, ownedChannelLineage } from "./channelRedirects";

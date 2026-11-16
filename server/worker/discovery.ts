@@ -5,7 +5,7 @@
  */
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { DB } from "../db";
-import { contentItems, contentSources, sourceDocuments, type Channel } from "../../shared/schema";
+import { channels, contentItems, contentSources, sourceDocuments, type Channel } from "../../shared/schema";
 import { NaverError, searchCalls, type CallCounter, type NaverItem } from "../services/naver";
 import { createNewsSearch, type SearchFunction } from "../services/newsSearch";
 import { clusterArticles, isRecentlyCovered, rankClusters, toArticle, type Article, type Cluster } from "../services/discover";
@@ -14,6 +14,7 @@ import { normalizeUrl } from "../services/url";
 import { samePublisherUrl } from "../services/publisherLookup";
 import { env } from "../env";
 import { resolveDiscovery, type DiscoveryInfo, type DiscoverySettings } from "../../shared/domain";
+import { channelCollectionKind, channelDiscoverySettings, supportsHighscoopNews } from "../../shared/channelContentMode";
 
 export type DiscoveryResult = {
   itemIds: number[];
@@ -26,8 +27,8 @@ export type DiscoveryResult = {
 
 const SUPPORTING_PER_ITEM = 3;
 
-export function channelDiscovery(channel: Pick<Channel, "contentType" | "budget">): DiscoverySettings | null {
-  const d = resolveDiscovery(channel.contentType, channel.budget.discovery);
+export function channelDiscovery(channel: Pick<Channel, "contentType" | "budget"> & Partial<Pick<Channel, "slug">>): DiscoverySettings | null {
+  const d = channelDiscoverySettings(channel);
   return d && d.enabled && d.queries.length && d.picksPerRun > 0 ? d : null;
 }
 
@@ -87,7 +88,7 @@ export async function runDiscovery(
   if (useAI) {
     const pool = ranked.slice(0, 15);
     const r = await curateIssues({
-      kind: channel.contentType as "science_dialogue" | "current_dialogue",
+      kind: channelCollectionKind(channel, supportsHighscoopNews(channel) ? "뉴스" : undefined) as "science_dialogue" | "current_dialogue",
       channelDescription: channel.description,
       editorialGuide: channel.editorialGuide,
       candidates: pool.map((c) => ({
@@ -173,6 +174,13 @@ export async function upsertNaverDoc(db: DB, it: NaverItem): Promise<{ id: numbe
 }
 
 async function saveCluster(db: DB, channel: Channel, runId: number, c: Cluster, pick: CuratePick | null, now: Date) {
+  return db.transaction(async tx => {
+    const [owner] = await tx.select({active:channels.active}).from(channels).where(eq(channels.id,channel.id)).for('share');
+    if(!owner?.active)throw new Error('통합·보관된 채널의 뉴스 수집을 중단했습니다.');
+    return saveClusterOwned(tx as DB, channel, runId, c, pick, now);
+  });
+}
+async function saveClusterOwned(db: DB, channel: Channel, runId: number, c: Cluster, pick: CuratePick | null, now: Date) {
   const rep = await upsertNaverDoc(db, c.representative);
   if (!rep) return null;
   const info: DiscoveryInfo = {
@@ -190,12 +198,13 @@ async function saveCluster(db: DB, channel: Channel, runId: number, c: Cluster, 
     .insert(contentItems)
     .values({
       channelId: channel.id,
-      kind: channel.contentType,
+      kind: channelCollectionKind(channel, supportsHighscoopNews(channel) ? "뉴스" : undefined),
       origin: "discovered",
       primarySourceId: rep.id,
       runId,
       title: c.representative.title || "(제목 없음)",
       category: c.query,
+      subcategory: supportsHighscoopNews(channel) ? "뉴스" : null,
       topicKey: pick?.angle ?? c.representative.title,
       scheduleStatus: "not_applicable",
       evidenceStatus: "needs_review",

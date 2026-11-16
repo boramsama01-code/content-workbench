@@ -110,6 +110,8 @@ export function applyFamilyFieldPatches(copy: CardCopyV2, patches: FamilyFieldPa
 }
 
 function brandFor(channel: Channel, existing: CardCopyV2 | null, subcategory?: string | null, payload: Record<string, unknown> = {}) {
+  // Regeneration preserves saved manual brand fields. New HighScoop work gets
+  // its channel profile below; rendered HighScoop cards use the common closing.
   const prior = existing?.pages.find(page => page.id === "outro");
   if (prior?.id === "outro") { const { cta: _cta, ...brand } = prior.fields; return brand; }
   const name = channelBrandName(channel), news = /all+igodang|알리고당/i.test(name);

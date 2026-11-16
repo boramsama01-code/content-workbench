@@ -245,6 +245,7 @@ export function familyPageText(page: FamilyPage, context: FamilyDisplayContext &
 }
 
 export const familyBrandName = (copy: CardCopyV2, fallback: string) => {
+  if (/highscoop|하이스쿱/i.test(fallback)) return "HighScoop";
   const outro = copy.pages.find(page => page.type === "outro");
   return outro?.type === "outro" ? outro.fields.brandName : fallback;
 };

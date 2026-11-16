@@ -4,7 +4,7 @@ import { studioContentSchema, studioPatchSchema } from "../shared/studio";
 
 describe("채널 운영 소분류", () => {
   it("수집 채널과 제작 채널에 같은 선택지를 사용한다", () => {
-    expect(channelCategories("opportunities")).toEqual(["중등입시", "고등입시", "전국대회", "캠프·체험 선발모집"]);
+    expect(channelCategories("opportunities")).toEqual(["중등입시", "고등입시", "전국대회", "캠프·체험 선발모집", "뉴스"]);
     expect(channelCategories("current-dialogue")).toEqual(channelCategories("science-dialogue"));
     expect(channelCategories("news")).toEqual(["과학", "사회", "정치", "예술", "여행", "최신이슈"]);
     expect(channelCategories("fryday")).toHaveLength(3);

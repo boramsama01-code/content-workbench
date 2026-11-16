@@ -17,6 +17,9 @@ import { ensureSourceWorkspace } from './sourceWorkspace';
 import { assertStudioActive } from './studio';
 import { resolveStyle, TemplateNotFound } from './templates';
 import { sha256 } from './text';
+import { canonicalChannelId, channelRedirects } from './channelRedirects';
+import { channelCollectionKind, supportsHighscoopNews } from '../../shared/channelContentMode';
+import { validSubcategory } from '../../shared/channelCategories';
 
 export async function initializeManualFamily(db:DB,channelId:number,input:FamilyManualCreate|FamilyManualInitialize,actor:string,itemId?:number):Promise<FamilyManualReceipt>{
   const parsed=(itemId===undefined?familyManualCreateSchema:familyManualInitializeSchema).safeParse(input);
@@ -29,12 +32,16 @@ export async function initializeManualFamily(db:DB,channelId:number,input:Family
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`manual-family:${body.requestId}`},0))`);
     const [receipt]=await tx.select().from(familyManualRequests).where(eq(familyManualRequests.requestId,body.requestId));
     if(receipt){
-      if(receipt.channelId!==channelId||receipt.requestHash!==requestHash)throw new HttpError(409,'같은 요청 ID로 다른 채널·원고·근거를 저장할 수 없습니다.',{code:'manual_request_conflict'});
+      const redirects=await channelRedirects(tx as DB);
+      const previousIds=Object.keys(redirects).map(Number).filter(id=>canonicalChannelId(id,redirects)===channelId);
+      const sameHash=receipt.requestHash===requestHash||previousIds.some(id=>receipt.requestHash===familyHash({channelId:id,itemId:itemId??null,...body}));
+      if(canonicalChannelId(receipt.channelId,redirects)!==channelId||!sameHash)throw new HttpError(409,'같은 요청 ID로 다른 채널·원고·근거를 저장할 수 없습니다.',{code:'manual_request_conflict'});
       return familyManualReceiptSchema.parse(receipt.result);
     }
     const [channel]=await tx.select().from(channels).where(eq(channels.id,channelId)).for('share');
     if(!channel)throw new HttpError(404,'채널을 찾을 수 없습니다.');
     if(!channel.active)throw new HttpError(409,'보관한 채널에는 새 수동 원고를 저장할 수 없습니다.');
+    if(!validSubcategory(channel.slug,body.subcategory,channel.categories))throw new HttpError(400,'이 채널에 없는 카테고리입니다.');
     try{await resolveStyle(tx as DB,body.copy.templateKey,channelId);}catch(error){if(error instanceof TemplateNotFound)throw new HttpError(400,error.message);throw error;}
     let item:typeof contentItems.$inferSelect;
     if(itemId!==undefined){
@@ -47,7 +54,9 @@ export async function initializeManualFamily(db:DB,channelId:number,input:Family
       if(existing.excluded||existing.isSample||existing.origin==='studio')throw new HttpError(409,'이 콘텐츠는 직접 변환할 수 없습니다. 새 수동 원고로 작성해 주세요.');
       item=existing;
     }else{
-      [item]=await tx.insert(contentItems).values({channelId,kind:channel.contentType,origin:'manual',title:body.title,topicKey:body.title,relevance:'relevant',scheduleStatus:channel.contentType==='notice'?'unknown':'not_applicable'}).returning();
+      const subcategory=body.subcategory||(supportsHighscoopNews(channel)?'뉴스':null);
+      const kind=channelCollectionKind(channel,subcategory);
+      [item]=await tx.insert(contentItems).values({channelId,kind,origin:'manual',title:body.title,topicKey:body.title,subcategory,relevance:'relevant',scheduleStatus:kind==='notice'?'unknown':'not_applicable'}).returning();
       await tx.select({id:contentItems.id}).from(contentItems).where(eq(contentItems.id,item.id)).for('update');
     }
     const copy=familyCardCopySchema.parse(body.copy),summary=copy.pages.find(page=>page.id==='news_summary')!,concept=copy.pages.find(page=>page.id==='concept')!,discussion=copy.pages.find(page=>page.id==='discussion')!;

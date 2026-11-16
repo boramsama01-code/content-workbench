@@ -8,6 +8,7 @@ import { Icon } from "./icons";
 import { ErrorBox, fmtDate, GuardedLink, Loading, StatusBadge } from "./ui";
 import { kstDay, type CollectionOverview } from "@shared/collection";
 import { isPrivateWorkroom } from "./workroom";
+import { isHighscoopNewsCategory, supportsHighscoopNews } from "@shared/channelContentMode";
 
 export function useKstToday() {
   const [today, setToday] = useState(kstDay());
@@ -19,12 +20,13 @@ export function CollectionPanel({ date, detailed = false, subcategory = "" }: { 
   const workroom = isPrivateWorkroom();
   const scheduleNoteId = useId(), workroomNoteId = useId();
   const { selected, select, current } = useChannel();
+  const newsCategory = !!current && isHighscoopNewsCategory(current, subcategory);
   const qc = useQueryClient(), toast = useToast();
   const [, navigate] = useLocation();
   const today = useKstToday();
   const [localDate, setLocalDate] = useState<string | null>(null);
   const day = date || localDate || today;
-  const query = useQuery({ queryKey: ["collection", selected, day], queryFn: () => api<CollectionOverview>(`/collection/overview?${qs({ channelId: selected, date: day })}`),
+  const query = useQuery({ queryKey: subcategory && selected !== "all" ? ["collection", selected, day, subcategory] : ["collection", selected, day], queryFn: () => api<CollectionOverview>(`/collection/overview?${qs({ channelId: selected, date: day, subcategory: selected !== "all" ? subcategory || undefined : undefined })}`),
     refetchInterval: q => q.state.data?.channels.some(c => c.jobs.some(j => !j.stale)) ? 5000 : 60_000 });
   const finished = query.data?.channels.map(c => c.lastRun?.finishedAt ?? "").join("|");
   useEffect(() => { if (finished) qc.invalidateQueries({ queryKey: ["ch"] }); }, [finished, qc]);
@@ -64,8 +66,8 @@ export function CollectionPanel({ date, detailed = false, subcategory = "" }: { 
   const recoveredNotice = recoveredSearchAuth && <p className="notice" role="status">이전 수집에서 네이버 인증에 실패했지만, 이후 연결 검사는 성공했습니다({fmtDate(d.naverConnectionTest!.at)}). 이 채널의 다음 수집 결과는 아직 확인하지 않았습니다. <GuardedLink href="/today">이전 실행 기록 확인 →</GuardedLink></p>;
   const showItems = (id: number, subcategory = "") => { select(id); navigate(`/inbox?collectedOn=${day}${subcategory ? `&subcategory=${encodeURIComponent(subcategory)}` : ""}`); };
   if (!detailed) return <section className="panel collection-compact" aria-label="날짜별 수집 현황">
-    <div className="collection-compact-head"><div><span className="collection-kicker">COLLECTION</span><h2>{day === today ? "오늘의 수집" : `${day} 수집 결과`}</h2></div><div className="row"><button className="btn ghost icon" aria-label="수집 현황 새로고침" onClick={() => query.refetch()} disabled={query.isFetching}><Icon name="refresh" size={18} /></button><button className="btn primary" onClick={() => collect.mutate(selected)} disabled={noSources || subcategory === "미분류" || (!!subcategory && selected === "all") || collect.isPending || busy || d.globalStop || !(d.searchReady ?? d.naverReady)}>{collect.isPending ? "요청 중…" : busy ? "수집 중…" : subcategory ? `${subcategory} 수집` : queued ? "대기 수집 재개" : selected === "all" ? "전체 채널 지금 수집" : "지금 수집"}</button></div></div>
-    {subcategory && <p className="small muted">선택한 소분류의 공식 출처와 활성 키워드를 수집합니다. 아래 현황 수치는 채널 전체 기준입니다.</p>}
+    <div className="collection-compact-head"><div><span className="collection-kicker">{newsCategory ? "NEWS BRIEFING" : "COLLECTION"}</span><h2>{newsCategory ? day === today ? "오늘의 뉴스·이슈" : `${day} 뉴스·이슈` : day === today ? "오늘의 수집" : `${day} 수집 결과`}</h2></div><div className="row"><button className="btn ghost icon" aria-label="수집 현황 새로고침" onClick={() => query.refetch()} disabled={query.isFetching}><Icon name="refresh" size={18} /></button><button className="btn primary" onClick={() => collect.mutate(selected)} disabled={noSources || subcategory === "미분류" || (!!subcategory && selected === "all") || collect.isPending || busy || d.globalStop || !(d.searchReady ?? d.naverReady)}>{collect.isPending ? "요청 중…" : busy ? "수집 중…" : newsCategory ? "최신 뉴스 모으기" : subcategory ? `${subcategory} 수집` : queued ? "대기 수집 재개" : selected === "all" ? "전체 채널 지금 수집" : "지금 수집"}</button></div></div>
+    {subcategory && <p className="small muted">{newsCategory ? "최근 뉴스와 여러 언론이 다루는 화제를 모읍니다. 원문을 확인한 뒤 교육 연결점·아이와 나눌 질문을 담은 콘텐츠로 만들 수 있습니다." : "선택한 소분류의 공식 출처와 활성 키워드를 수집합니다."} 아래 현황은 ‘{subcategory}’ 자료 기준입니다.</p>}
     <div className="collection-compact-metrics"><div><span>새로 모은 자료</span><strong>{totals.newItems}<small>건</small></strong></div><div><span>검토를 기다리는 자료</span><strong>{totals.pending}<small>건</small></strong></div><div className="collection-compact-next"><div className="collection-schedule-status"><span>다음 자동 수집</span><strong>{nextCollection}</strong></div>{scheduleControls}{scheduleNote}</div></div>
     {workroomNote}
     {sourceSetup}
@@ -92,8 +94,8 @@ export function CollectionPanel({ date, detailed = false, subcategory = "" }: { 
     </div>
     {workroomNote}
     {sourceSetup}
-    {(d.sourceMode === "public_rss" || d.sourceMode === "official_naver") && <div className="small muted">학교·기관 공지와 청소년 활동 목록 우선 · 네이버 뉴스·웹문서로 보완</div>}
-    {current?.contentType === "notice" && <div className="small muted">공식 모집 게시판과 청소년 공모전 목록부터 확인하고, 네이버 검색으로 보완합니다. 사후 홍보·대상 외 모집은 새로 저장하지 않습니다.</div>}
+    {(d.sourceMode === "public_rss" || d.sourceMode === "official_naver") && <div className="small muted">{newsCategory ? "최신 뉴스·언론사 피드와 공개 RSS를 확인합니다." : current && supportsHighscoopNews(current) ? "모집·입시 자료와 최신 뉴스·이슈를 소분류별로 모읍니다." : "학교·기관 공지와 청소년 활동 목록 우선 · 네이버 뉴스·웹문서로 보완"}</div>}
+    {current?.contentType === "notice" && !newsCategory && <div className="small muted">공식 모집 게시판과 청소년 공모전 목록부터 확인하고, 네이버 검색으로 보완합니다. 사후 홍보·대상 외 모집은 새로 저장하지 않습니다. {supportsHighscoopNews(current) && "‘뉴스’ 소분류는 모집 공고와 구분해 최신 뉴스·이슈로 수집합니다."}</div>}
     {!d.naverReady && d.sourceMode !== "public_rss" && <div className="notice warn">네이버가 미연결 상태입니다. 학교·기관 공지는 직접 읽고 뉴스는 공개 RSS로 보완합니다. 웹문서·블로그 검색은 연결 후 사용할 수 있습니다. <GuardedLink href="/connections?service=naver">연결 확인</GuardedLink></div>}
     {searchAuthFailed && <div className="notice err" role="alert"><strong>최근 수집에서 네이버 검색 인증에 실패했습니다.</strong><p style={{ margin: "6px 0" }}>학교·기관 공지는 계속 확인합니다. 저장된 Client ID·Client Secret 또는 검색 API 권한을 확인해 주세요.</p><GuardedLink href="/connections?service=naver">네이버 키 확인·수정 →</GuardedLink><span className="small"> 키 저장 → 연결 확인 → 지금 수집 순서로 재개할 수 있습니다.</span></div>}
     {recoveredNotice}

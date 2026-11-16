@@ -67,7 +67,7 @@ type WritingScope = "draft" | "caption" | "partial" | "review";
 export function snsWritingPrompt(options: { channel?: string; format?: string; scope?: WritingScope } = {}): string {
   const channel = studioKey(options.channel ?? "");
   const channelVoice = channel === "highscoop"
-    ? "HighScoop: 중고등학생과 부모가 바로 쓸 수 있는 기회·학습 정보를 다룬다. 모집과 조언을 구분하고 지원 대상·일정·제출물을 명확히 한다. 불안·합격 보장 없이 제목의 긴장감과 유용함을 살린다."
+    ? "HighScoop: 중고등학생과 부모가 바로 쓸 수 있는 기회·학습 정보와 최신 뉴스·이슈를 다룬다. 모집은 대상·일정·제출물을 명확히 한다. 뉴스는 확인한 사건·발언·전망을 구분하고 아이의 생활·학교·교육과 연결되는 이유를 구체적으로 짚는다. 모든 뉴스를 입시나 영재성으로 억지 연결하지 않는다. 부모와 아이가 서로 다른 판단 기준을 나누는 질문·핵심 개념·확인 가능한 자료를 만든다. 불안·합격 보장 없이 제목의 긴장감과 유용함을 살린다."
     : channel === "news"
       ? "뉴스: 사실의 의외성과 생활에서 떠올릴 수 있는 장면을 연결한다. 발언·전망은 발언자를 남긴다. 부모·아이 대화가 요청된 형식에서만 질문과 진행법을 붙인다."
       : channel === "fryday"
