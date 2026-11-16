@@ -21,6 +21,7 @@ import { SourceStudioCard } from "./SourceStudioCard";
 import { aiProviderLabels, type AiProvider } from "@shared/aiProviders";
 import { legacyChannelAiSettings, type ChannelAiRuntime } from "@shared/channelAi";
 import { AiUsageGuide } from "../AiUsageGuide";
+import { AiCapacityPanel } from "../AiCapacityPanel";
 import { lazy, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -51,7 +52,7 @@ const stages: Array<{ id: Stage; label: string }> = [{ id: "idea", label: "아�
 const formats: readonly Format[] = studioFormats;
 function useStudioChannels(includeArchived = false) {
   const { allChannels } = useChannel();
-  return allChannels.filter(c => (includeArchived || c.active) && !(c.slug === "science-dialogue" && allChannels.some(other => other.slug === "current-dialogue"))).map(c => ({ id: studioKey(c.slug), name: c.name, role: c.description, profile: creativeProfileFor(c), active: c.active, accent: c.accentColor, categories: c.categories, aiSettings: legacyChannelAiSettings(c.aiSettings), effectiveAiSettings: (c as typeof c & Partial<ChannelAiRuntime>).effectiveAiSettings }));
+  return allChannels.filter(c => (includeArchived || c.active) && !(c.slug === "science-dialogue" && allChannels.some(other => other.slug === "current-dialogue"))).map(c => ({ id: studioKey(c.slug), channelId: c.id, name: c.name, role: c.description, profile: creativeProfileFor(c), active: c.active, accent: c.accentColor, categories: c.categories, aiSettings: legacyChannelAiSettings(c.aiSettings), effectiveAiSettings: (c as typeof c & Partial<ChannelAiRuntime>).effectiveAiSettings }));
 }
 const characters = STUDIO_CHARACTERS;
 
@@ -518,6 +519,7 @@ function StudioEditor({ data, refresh }: { data: Detail; refresh: () => unknown 
         <div className="studio-section-heading"><div><span className="studio-step">02 · 그림 제작</span><h2>{form.format === "카드뉴스" ? "본문 4장" : "네컷 구성"}</h2></div><span className="small muted">{form.panels.filter(p => p.imageId).length} / 4 그림</span></div>
         <WorkModeControl mode={imageMode === "api" ? "auto" : "manual"} onChange={mode => guard.confirmLeave(() => setImageMode(mode === "auto" ? "api" : "chatgpt"), form.panels.map((_, i) => `studio-image-${i}`))} disabled={busy} automaticUnavailable={settings.data?.ai.image === false ? "OpenAI 연결이 필요합니다. 연결 후 앱 안에서 그림을 만들고 바로 확인할 수 있습니다." : null} onConfigure={() => guard.confirmLeave(() => navigate("/connections?service=openai"))} />
         <p className="small muted">{imageMode === "chatgpt" ? "직접 만든 그림을 붙여넣거나 파일로 가져올 수 있습니다. 필요하면 외부 ChatGPT용 프롬프트를 복사하세요." : "장면과 문구를 수정한 뒤 원하는 컷만 다시 만들 수 있습니다. 한 번에 최대 4컷을 차례로 생성하며 컷마다 API 사용료가 발생합니다."}</p>
+        {imageMode === "api" && <AiCapacityPanel channelId={channelAi?.channelId} plannedImages={missingImages.length} plannedDescription="빈 그림 자동 생성" alternateRequest={selectedImages.length ? { images: selectedImages.length, description: "선택한 그림 다시 생성" } : undefined} />}
         {imageMode === "api" && <div className="studio-batch-actions">
           <button className="btn primary" disabled={!canDraw || !missingImages.length} onClick={() => run({ kind: "image", panelIndexes: missingImages })}>빈 그림 {missingImages.length}컷 자동 생성</button>
           <button className="btn" disabled={!canDraw || !selectedImagesReady} onClick={() => run({ kind: "image", panelIndexes: [...selectedImages].sort((a, b) => a - b) })}>선택한 {selectedImages.length || ""}컷 다시 생성</button>

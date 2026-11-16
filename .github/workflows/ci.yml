@@ -164,6 +164,9 @@ jobs:
       - name: Verify automatic images, manual fallback and final page previews
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/studio-automatic-regression.mjs
+      - name: Verify AI capacity, provider selection and image request estimates
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        run: node --import tsx scripts/ai-capacity-regression.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -177,6 +180,7 @@ jobs:
             test-results/channel-navigation
             test-results/studio-automatic-browser
             test-results/sns-writing
+            test-results/ai-capacity-browser
             test-results/asset-library-browser
             test-results/notion-interior-templates
             test-results/notion-canva-autosave

@@ -1,6 +1,7 @@
 // Browser regression against the built app. Every API response is synthetic;
 // external requests are blocked, and no database, AI provider or social account is used.
 import assert from "node:assert/strict";
+import { aiCapacityFixture } from "./ai-capacity-fixture.mjs";
 import { closeChannelMenu, selectChannel } from './channel-picker.mjs';
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -88,6 +89,7 @@ function fixture() {
     else if (pathname === "/api/channels/3/today") data = { counts: { pendingReview: 1, draftsReady: 1 } };
     else if (pathname === "/api/status") data = { globalStop: false, workerConnected: true, integrations: { aiProvider: "gemini", gemini: true, openai: false, anthropic: false, flags: { dryRun: false, autoPublish: true } } };
     else if (pathname === "/api/studio/ai-status") data = ai;
+    else if (pathname === "/api/studio/ai-capacity") data = aiCapacityFixture(url, channels, ai);
     else if (pathname === "/api/canva/status") data = { connected: false };
     else if (pathname === "/api/studio/cards/25") data = studio();
     else if (pathname === "/api/studio/cards/25/canva-sync" && method === "GET") data = { binding: null, phase: "idle", cardVersion: studio().card.version, message: "Isolated fixture: no Canva design connected." };

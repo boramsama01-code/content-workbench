@@ -6,7 +6,7 @@ import { readingArtworkComposition, readingArtworkPagesLabel, readingArtworkProm
 import { z } from "zod";
 import type { DB } from "../db";
 import type { Channel, ContentItem } from "../../shared/schema";
-import { channelAiTaskRoles } from "../../shared/channelAi";
+import { channelAiTaskRoles, type AiRoleOverrides } from "../../shared/channelAi";
 import {
   FAMILY_FORMAT_ID, FAMILY_PAGE_IDS, FAMILY_SCHEMA_VERSION, claimRefSchema,
   familyCardCopyAiSchema, familyCardCopySchema, familyDialogueMetadataSchema,
@@ -50,9 +50,9 @@ export function familyMetadataFromPayload(payload: Record<string, unknown>): Fam
   const parsed = familyDialogueMetadataSchema.safeParse(Object.fromEntries(FAMILY_METADATA_KEYS.map(key => [key, payload[key]])));
   return parsed.success ? parsed.data : null;
 }
-export function familyExecutionPlan(channel: Channel, revisionId: number, snapshotId: string | null = null): AiExecutionPlan {
+export function familyExecutionPlan(channel: Channel, revisionId: number, snapshotId: string | null = null, overrides?: AiRoleOverrides): AiExecutionPlan {
   return channelAiExecutionPlan(channel, { sourceSnapshotId: snapshotId, contentRevision: revisionId, schemaVersion: FAMILY_SCHEMA_VERSION,
-    promptVersions: Object.fromEntries(channelAiTaskRoles.map(role => [role, FAMILY_PROMPT_VERSION])) });
+    promptVersions: Object.fromEntries(channelAiTaskRoles.map(role => [role, FAMILY_PROMPT_VERSION])), overrides });
 }
 const patchSchema = z.object({ path: z.string().min(1).max(240), value: z.union([z.string().max(1000), z.array(z.string().max(1000)).max(3), z.null()]), claimRefs: z.array(claimRefSchema).max(20) }).strict();
 export type FamilyFieldPatch = z.infer<typeof patchSchema>;

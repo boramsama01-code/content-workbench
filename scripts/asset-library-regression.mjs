@@ -1,5 +1,6 @@
 // Built application, authenticated metadata fixtures, no provider/AI/publishing calls.
 import assert from 'node:assert/strict';
+import { aiCapacityFixture } from './ai-capacity-fixture.mjs';
 import { editorialTemplateCatalogOptions } from '../shared/templateCatalog.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -81,6 +82,7 @@ function fixture() {
     }
     else if (/^\/api\/(?:channels\/\d+\/media\/\d+|studio\/images\/\d+|assets\/library\/videos\/\d+\/preview)$/.test(p)) return route.fulfill({ contentType: 'image/jpeg', body: pictures[/\/(?:41|50)$/.test(p) ? 1 : 0] });
     else if (p === '/api/studio/ai-status') data = ai;
+    else if (p === '/api/studio/ai-capacity') data = aiCapacityFixture(url, channels, ai);
     else if (p === '/api/canva/status') data = { connected: false };
     else if (p === '/api/studio/instagram/oauth/config') data = { configured: false, reason: 'isolated_fixture' };
     else if (p === '/api/studio/cards' && method === 'GET') data = { cards: [card], revisions: [], ai, notes: '', notesVersion: 1 };

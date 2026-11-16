@@ -1,6 +1,7 @@
 // Built UI, actual production raster previews, isolated HTTP fixtures only.
 // The supplied template/example is never treated as independently verified news.
 import assert from 'node:assert/strict';
+import { aiCapacityFixture } from './ai-capacity-fixture.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -46,6 +47,7 @@ function fixture(expectedTemplate=example.copy.templateKey) {
     else if (pathname === '/api/channels/3/today') data = { counts: { pendingReview: 0, draftsReady: 0 } };
     else if (pathname === '/api/status') data = { globalStop: false, workerConnected: true, integrations: { aiProvider: 'gemini', gemini: false, openai: false, anthropic: false, flags: { dryRun: true, autoPublish: false } } };
     else if (pathname === '/api/studio/ai-status') data = ai;
+    else if (pathname === '/api/studio/ai-capacity') data = aiCapacityFixture(url, channels, ai);
     else if (pathname === '/api/studio/cards' && method === 'GET') data = { cards: state.body ? [card()] : [], ai, notes: '', notesVersion: 1 };
     else if (pathname === '/api/channels/3/items/manual-family' && method === 'POST') {
       assert.equal(state.body, null, 'one explicit creation only'); const saved = familyManualCreateSchema.parse(body);

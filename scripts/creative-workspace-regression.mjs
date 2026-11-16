@@ -1,6 +1,7 @@
 // Real built React screens, synthetic API responses, existing approved artwork.
 // No production credentials, external requests, paid generation or SNS writes.
 import assert from "node:assert/strict";
+import { aiCapacityFixture } from "./ai-capacity-fixture.mjs";
 import { browserLayout } from "./browser-layout.mjs";
 import {selectChannel} from './channel-picker.mjs';
 import { writeWorkspaceReview } from "./creative-workspace-review.mjs";
@@ -78,6 +79,7 @@ async function intercept(route,origin,errors,writes){
   const current=cards.get(Number(p.split("/")[4]));assert(current,"known fixture card for Canva status");
   data={binding:null,phase:"idle",cardVersion:current.version,message:"Isolated fixture: no Canva design connected."};
  }else if(p==="/api/studio/ai-status")data=ai;
+ else if(p==="/api/studio/ai-capacity")data=aiCapacityFixture(url,channels,ai);
  else if(p==="/api/studio/instagram/oauth/config")data={configured:false,missing:["INSTAGRAM_APP_ID"],appId:null,redirectUri:origin+"/api/studio/instagram/oauth/callback"};
  else if(p==="/api/studio/export-check")data={errors:[],warnings:[],pageCount:1};
  else if(/\/studio\/cards\/\d+\/media$/.test(p))data=[];

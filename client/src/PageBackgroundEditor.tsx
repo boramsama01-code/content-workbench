@@ -1,3 +1,4 @@
+import { AiCapacityPanel } from "./AiCapacityPanel";
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "./api";
@@ -243,6 +244,7 @@ export function PageBackgroundEditor(props: Props) {
           <details><summary>실제 AI 요청 전체 보기</summary><textarea aria-label="실제 AI 요청 전체" readOnly rows={8} value={studioImagePrompt({ purpose: "cover", prompt: promptDraft?.prompt ?? promptView.prompt, instruction: instructions[pageId] ?? promptView.instruction, compositionPrompt: promptView.compositionPrompt })} /><p className="hint">위의 프롬프트와 아래 추가 요청에 공통 출력 규칙을 더해 전달합니다. 중앙 정방형·프로필 크롭을 고려한 공통 구도와 실제 사진창의 안전영역도 함께 전달합니다. 얼굴·손·핵심 소품은 안쪽에, 이미지 속 글자·로고는 카드 편집기에서 따로 배치합니다. {promptView.referenceAssetId ? "현재 선택한 배경 이미지도 참조로 전달합니다." : "참조 이미지 없이 생성합니다."}</p></details>
           {promptView.lastGeneration && <details><summary>최근 생성에 사용한 프롬프트</summary><p className="hint">이미지 #{promptView.lastGeneration.assetId} · {promptView.lastGeneration.model}</p><textarea aria-label="최근 생성 프롬프트" readOnly rows={7} value={promptView.lastGeneration.prompt} /></details>}
         </section>}
+        <AiCapacityPanel channelId={channelId} plannedImages={1} />
         <label className="field">이 페이지 그림 지시<textarea rows={3} maxLength={2000} value={instructions[pageId] ?? ""} disabled={blocked} placeholder="예: 두 사람이 서로 다른 기준으로 같은 로봇을 바라보는 장면. 중앙에는 글을 위한 여백." onChange={event => setInstructions(value => ({ ...value, [pageId]: event.target.value }))} /></label><button className="btn" disabled={blocked || !imageReady || !!promptDraft && !promptDraft.prompt.trim()} onClick={() => void start("ai")}>{busy ? "배경 작업 중…" : background ? "이 페이지 배경 다시 만들기 · 이미지 1장" : "이 페이지 배경 자동 만들기 · 이미지 1장"}</button><p className="hint">{imageModel ? `${imageModel} · ` : ""}선택한 페이지만 생성합니다. 기존 그림은 새 결과를 선택하고 저장할 때까지 유지합니다.</p>
       </>}
       {showAi && !imageReady && <p className="hint">이미지 AI 연결이 필요합니다. <GuardedLink href="/connections?service=openai">OpenAI 연결 설정</GuardedLink>에서 연결하거나 직접 이미지를 선택할 수 있어요.</p>}

@@ -11,7 +11,9 @@ import { getDb } from "../db";
 import { actorOf } from "../auth";
 import { channels, jobs, studioCards, studioImages, studioRevisions, studioMedia } from "../../shared/schema";
 import { studioCharacters, studioContentSchema, studioCreateSchema, studioGenerationSchema, studioPatchSchema } from "../../shared/studio";
-import { ah, HttpError, intParam, parse } from "./util";
+import { ah, HttpError, intParam, loadChannel, parse } from "./util";
+import { channelAiCapacity } from "../services/aiCapacity";
+import { aiProviders } from "../../shared/aiProviders";
 import { setStudioTrash, createStudioCard, importStudioBoard, loadStudioNotes, queueStudioGeneration, saveStudioCard, saveStudioNotes, studioCardDto, studioCardsWithOutput, studioDetail, studioImportSchema, studioJobDto } from "../services/studio";
 import { studioAiStatus } from "../services/studioAi";
 import { kickInlineStudio } from "../worker/studio";
@@ -47,6 +49,11 @@ studioRoutes.use(snsEditorialRoutes);
 studioRoutes.use(codexWriterOperatorRoutes);
 studioRoutes.use(editorialVoiceRoutes);
 studioRoutes.use(canvaStudioSyncRoutes);
+studioRoutes.get("/studio/ai-capacity", ah(async (req, res) => {
+  const query = parse(z.object({ channelId: z.coerce.number().int().positive(), analysisProvider: z.enum(aiProviders).optional(), imageOnly: z.enum(["0", "1"]).optional() }).strict(), req.query);
+  const channel = await loadChannel(query.channelId);
+  res.json(await channelAiCapacity(getDb(), channel, query.analysisProvider, query.imageOnly === "1"));
+}));
 // Mounted behind the same operator-session middleware as all studio routes.
 studioRoutes.get("/studio/brand-assets/:asset", ah(async (req, res) => {
   const asset = registeredProfileAsset(req.params.asset);

@@ -8,12 +8,15 @@ const REQUEST_TIMEOUT_MS = 90_000;
 const MAX_RETRY_DELAY_MS = 15_000;
 const MAX_ERROR_BYTES = 32_768;
 
-type FailureInfo = { retryable: boolean; quotaExceeded?: boolean; retryAfterMs?: number };
+type FailureInfo = { retryable: boolean; quotaExceeded?: boolean; quotaReason?: "unavailable" | "daily" | "billing"; retryAfterMs?: number };
 type FailureMessageOptions = Partial<FailureInfo> & { attempts?: number };
 
 export function geminiFailureMessage(status: number, options: FailureMessageOptions = {}): string {
   const reason = status === 503 ? "Gemini 서버가 잠시 혼잡합니다. 잠시 후 다시 시도하거나 AI 없이 직접 편집을 이어가세요." :
-    status === 429 && options.quotaExceeded ? "프로젝트 사용 한도에 도달했습니다. AI Studio에서 할당량·결제 상태를 확인하거나 한도가 초기화된 뒤 다시 시도하세요. 직접 편집은 계속할 수 있습니다." :
+    status === 429 && options.quotaReason === "unavailable" ? "선택한 모델의 프로젝트 할당량이 0입니다. 오늘 사용하지 않았어도 발생할 수 있습니다. AI Studio에서 해당 모델의 할당량·결제 상태를 확인하거나 다른 AI를 선택하세요. 직접 편집은 계속할 수 있습니다." :
+    status === 429 && options.quotaReason === "billing" ? "프로젝트의 결제·크레딧 제한으로 요청이 거절됐습니다. AI Studio에서 할당량·결제 상태를 확인하세요. 직접 편집은 계속할 수 있습니다." :
+    status === 429 && options.quotaReason === "daily" ? "이 프로젝트의 일일 사용 한도에 도달했습니다. 같은 프로젝트의 다른 사용도 포함됩니다. AI Studio에서 할당량·결제 상태와 초기화 시각을 확인하거나 다른 AI를 선택하세요. 직접 편집은 계속할 수 있습니다." :
+    status === 429 && options.quotaExceeded ? "프로젝트의 할당량·결제 제한으로 요청이 거절됐습니다. AI Studio에서 할당량·결제 상태를 확인하세요. 직접 편집은 계속할 수 있습니다." :
     status === 429 && options.retryable ? "짧은 시간에 요청이 몰려 Gemini 호출이 제한됐습니다. 잠시 기다린 뒤 다시 시도하거나 직접 편집을 이어가세요." :
     status === 429 ? "호출 한도에 도달했습니다. AI Studio에서 프로젝트 한도를 확인하고 나중에 다시 시도하세요. 직접 편집은 계속할 수 있습니다." :
     status === 401 || status === 403 ? "설정의 Gemini API 키·모델 접근 권한·이용 가능 지역을 확인하세요." :
@@ -22,7 +25,7 @@ export function geminiFailureMessage(status: number, options: FailureMessageOpti
     status === 400 ? "키 또는 요청 형식을 확인하세요. 무료 등급 이용 가능 여부도 AI Studio에서 확인하세요." :
     "요청을 완료하지 못했습니다. 기존 내용을 확인한 뒤 다시 시도하거나 직접 편집을 이어가세요.";
   const attempted = (options.attempts ?? 1) > 1 ? ` 총 ${options.attempts}회 시도했습니다.` : "";
-  const retryAfter = options.retryAfterMs && Number.isFinite(options.retryAfterMs) ? ` 다시 요청하려면 최소 ${Math.ceil(options.retryAfterMs / 1000)}초 기다려 주세요.` : "";
+  const retryAfter = options.quotaReason !== "unavailable" && options.quotaReason !== "billing" && options.retryAfterMs && Number.isFinite(options.retryAfterMs) ? ` 다시 요청하려면 최소 ${Math.ceil(options.retryAfterMs / 1000)}초 기다려 주세요.` : "";
   return `Gemini HTTP ${status}: ${reason}${attempted}${retryAfter}`;
 }
 
@@ -88,14 +91,18 @@ async function failureInfo(response: Response, signal: AbortSignal): Promise<Fai
     if (!error || typeof error !== "object" || Array.isArray(error)) return { retryable: false, retryAfterMs: headerDelay };
     const description = JSON.stringify(error);
     // Daily/zero quotas and billing caps sometimes also carry RetryInfo: they take precedence.
-    const quotaExceeded = /per[\s_-]?day|daily|insufficient[_ -]quota|quota_exceeded|spend[\s_-]?(?:cap|limit)|billing[\s_-](?:disabled|not[\s_-]enabled)|(?:credit|balance)[\s_-](?:depleted|exhausted|insufficient)|(?:depleted|insufficient)[\s_-](?:credit|balance)|\blimit[\s\"]*[:=]\s*0(?:\D|$)|"quota(?:Value|_value)"\s*:\s*"?0(?:["},\s]|$)/i.test(description);
+    const unavailable = /\blimit[\s\"]*[:=]\s*0(?:[^\d.]|$)|"quota(?:Value|_value)"\s*:\s*"?0(?:["},\s]|$)/i.test(description);
+    const billing = /spend[\s_-]?(?:cap|limit)|billing[\s_-](?:disabled|not[\s_-]enabled)|(?:credit|balance)[\s_-](?:depleted|exhausted|insufficient)|(?:depleted|insufficient)[\s_-](?:credit|balance)/i.test(description);
+    const daily = /per[\s_-]?day|daily/i.test(description);
+    const quotaExceeded = unavailable || billing || daily || /insufficient[_ -]quota|quota_exceeded/i.test(description);
+    const quotaReason = unavailable ? "unavailable" : billing ? "billing" : daily ? "daily" : undefined;
     const details = Array.isArray(error.details) ? error.details : [];
     const retryInfo = details.find((detail: any) => detail?.["@type"] === "type.googleapis.com/google.rpc.RetryInfo");
     const delayMatch = typeof retryInfo?.retryDelay === "string" ? /^(\d+(?:\.\d+)?)s$/.exec(retryInfo.retryDelay) : null;
     const detailDelay = delayMatch ? Number(delayMatch[1]) * 1000 : undefined;
     const delay = headerDelay === undefined && detailDelay === undefined ? undefined : Math.max(headerDelay ?? 0, detailDelay ?? 0);
     const temporaryLimit = /rate_limit_exceeded|too_many_requests|per[\s_-]?(?:minute|second)|\b(?:RPM|TPM)\b/i.test(description);
-    return { retryable: !quotaExceeded && (temporaryLimit || delay !== undefined), quotaExceeded, retryAfterMs: delay };
+    return { retryable: !quotaExceeded && (temporaryLimit || delay !== undefined), quotaExceeded, quotaReason, retryAfterMs: delay };
   } catch {
     // A malformed/oversized/unknown 429 is not evidence of a temporary limit.
     return { retryable: false, retryAfterMs: headerDelay };

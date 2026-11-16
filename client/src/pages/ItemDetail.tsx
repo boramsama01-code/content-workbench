@@ -1,3 +1,5 @@
+import { AiCapacityPanel } from "../AiCapacityPanel";
+import { sourceImageRequestLimit } from "@shared/aiCapacity";
 import { CanvaEditorial } from "../CanvaEditorial";
 import { CanvaStudioSync } from "../CanvaStudioSync";
 import { editorialPlanSchema, familyCardCopySchema, pageDesignsSchema } from "@shared/familyDialogue";
@@ -580,6 +582,7 @@ export function EditPanel({ d, cid, templateKey, onTemplateChange, onDirtyChange
         {readingProfileForTemplateKey(draftTemplate) && <p className="notice small">선택한 풀세트는 표지부터 마지막 장까지 8장으로 만듭니다. 기존 카드 원고가 있으면 아래 편집기에서 새 8장 제안을 비교한 뒤 전환하세요. 선택만으로 생성하거나 기존 내용을 덮어쓰지 않습니다.</p>}
         <p className="hint">요약 AI가 원문을 분석하고, 문구 AI가 선택한 디자인에 맞게 카드를 작성합니다. 아래 카드 편집기에서 세부 문구를 고치거나 다시 제안받을 수 있어요.</p>
         <AiUsageGuide provider={provider} />
+        <AiCapacityPanel channelId={cid} analysisProvider={provider} showAnalysis plannedImages={sourceImageRequestLimit({ kind: d.item.kind, hasSavedCopy: !!d.current?.payload.cardCopy, hasRevision: !!d.current, hasArticleBody: !!d.primary && d.primary.fetchStatus === "ok" && (d.primary.fetchedText?.trim().length ?? 0) >= 100, templateKey: draftTemplate })} />
         {ai.data?.integrations[provider] === false && <p className="notice warn small">선택한 AI의 키가 없습니다. <GuardedLink href={`/connections?service=${provider}`}>API 키 입력 →</GuardedLink></p>}
         {!sourceReady && <p className="notice small">먼저 위에서 본문을 불러오거나 직접 붙여넣어 저장해 주세요.</p>}
         <button className="btn sm" onClick={() => gen.mutate()} disabled={!!recovery.pending || gen.isPending || (!generation.unresolved && (dirty || !sourceReady || !ai.data?.integrations[provider]))} title={dirty && !generation.unresolved ? "저장 후 사용할 수 있습니다" : undefined}>
