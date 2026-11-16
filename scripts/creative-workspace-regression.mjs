@@ -74,6 +74,9 @@ async function intercept(route,origin,errors,writes){
    if(body.version!==current.version)return route.fulfill({status:409,json:{error:"다른 기기에서 새 버전을 저장했습니다. 현재 입력은 유지했습니다.",current}});
    const saved={...current,...clone(body),version:current.version+1};cards.set(id,saved);data=saved;
   }else data={card:current,revisions:id===20?[{id:200,cardId:20,version:1,snapshot:clone(current),instruction:"촬영 자료와 장면 구성 저장",createdAt:stamp}]:[],jobs:[],images:[]};
+ }else if(/^\/api\/studio\/cards\/\d+\/canva-sync$/.test(p)&&method==="GET"){
+  const current=cards.get(Number(p.split("/")[4]));assert(current,"known fixture card for Canva status");
+  data={binding:null,phase:"idle",cardVersion:current.version,message:"Isolated fixture: no Canva design connected."};
  }else if(p==="/api/studio/ai-status")data=ai;
  else if(p==="/api/studio/instagram/oauth/config")data={configured:false,missing:["INSTAGRAM_APP_ID"],appId:null,redirectUri:origin+"/api/studio/instagram/oauth/callback"};
  else if(p==="/api/studio/export-check")data={errors:[],warnings:[],pageCount:1};

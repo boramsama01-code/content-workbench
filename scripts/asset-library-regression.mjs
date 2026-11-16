@@ -85,6 +85,7 @@ function fixture() {
     else if (p === '/api/studio/instagram/oauth/config') data = { configured: false, reason: 'isolated_fixture' };
     else if (p === '/api/studio/cards' && method === 'GET') data = { cards: [card], revisions: [], ai, notes: '', notesVersion: 1 };
     else if (p === '/api/studio/cards/8' && method === 'GET') data = { card, revisions: [], jobs: [] }; // exact RID is older than the recent list
+    else if (p === '/api/studio/cards/8/canva-sync' && method === 'GET') data = { binding: null, phase: 'idle', cardVersion: card.version, message: 'Isolated fixture: no Canva design connected.' };
     else if (p === '/api/studio/cards/8/revisions/2') data = revision;
     else if (p === '/api/studio/cards/8/restore' && method === 'POST') { assert.deepEqual(body, { version: card.version, revisionId: 2 }); card = { ...card, ...structuredClone(revision.snapshot), version: card.version + 1 }; data = card; }
     else if (p === '/api/studio/cards/8/publication') data = { channelId: 1, channelName: channels[0].name, expectedUsername: null, ready: false, blockers: ['QA 자료 · 게시 금지'], dailyLimit: 0, dryRun: true, autoPublish: false, destinations: [], deliveries: [], publicationDraft: { version: 0 } };

@@ -108,6 +108,7 @@ function fixture() {
       } else data = { items: state.canvaJobs };
     }
     else if (pathname === "/api/studio/cards/2828") data = studio();
+    else if (pathname === "/api/studio/cards/2828/canva-sync" && method === "GET") data = { binding: null, phase: "idle", cardVersion: studio().card.version, message: "Isolated fixture: no Canva design connected." };
     else if (pathname === "/api/studio/cards") data = { cards: [studio().card], ai, notes: "", notesVersion: 1 };
     else if (pathname === "/api/channels/3/templates") data = { current: "editorial:cyan", items: editorialTemplateCatalogOptions(channels[0]) };
     else if (pathname === "/api/channels/3/templates/preview") return route.fulfill({contentType:'image/jpeg',body:await cardImage({...familyDialogueCardFixture(),templateKey:url.searchParams.get('key')??'editorial:cyan'},0,backgrounds,familyDialogueMetadataFixture().pageDesigns)});
