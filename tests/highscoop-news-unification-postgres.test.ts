@@ -8,6 +8,7 @@ import { familyEvidenceRecords } from "../shared/familyEvidenceDb";
 import { familyManualCreateSchema } from "../shared/familyManual";
 import { familyDialogueCardFixture } from "./fixtures/familyDialogueCard";
 import { familyEvidenceFixture } from "./fixtures/familyEvidence";
+import { kstDay } from "../shared/collection";
 import { login, resetDb, setTestEnv, naverResponse } from "./helpers";
 setTestEnv();
 const {getDb,closeDb}=await import("../server/db");
@@ -72,6 +73,15 @@ it("collects ordinary news in HighScoop/news without recruitment filtering or pa
   try{await runCollect(db,1,{trigger:"manual",subcategory:"뉴스",collectionOnly:true,naverFetch:search});}finally{vi.unstubAllEnvs();}
   const found=await db.select().from(contentItems).where(eq(contentItems.title,"AI와 환경 정책, 서로 다른 판단 기준"));
   expect(found).toHaveLength(1);expect(found[0]).toMatchObject({channelId:1,kind:"current_dialogue",subcategory:"뉴스",scheduleStatus:"not_applicable",excluded:false});
+  await db.insert(contentItems).values({channelId:1,kind:"notice",subcategory:"중등입시",title:"뉴스에 섞이면 안 되는 모집 공고",origin:"collected"});
+  await db.insert(searchRules).values({channelId:1,query:"중학교 모집",normalizedQuery:"중학교 모집",endpoint:"news",subcategory:"중등입시",enabled:true});
+  const {agent}=await login(createApp());
+  const scoped=await agent.get("/api/collection/overview").query({channelId:1,date:kstDay(),subcategory:"뉴스"});
+  expect(scoped.status,JSON.stringify(scoped.body)).toBe(200);
+  expect(scoped.body.channels[0]).toMatchObject({newItems:1,pending:1,queries:1,discoveryQueries:0,boards:0,profile:null,categories:[{label:"뉴스",newItems:1}]});
+  const all=await agent.get("/api/collection/overview").query({channelId:1,date:kstDay()});
+  expect(all.status).toBe(200);expect(all.body.channels[0]).toMatchObject({newItems:2,pending:2});
+  expect(all.body.channels[0].queries).toBeGreaterThan(scoped.body.channels[0].queries);
 });
 it("generates a HighScoop education-news deck through GPT using the news template and common brand",async()=>{
   const db=getDb(),source=editorialSource(),provider=createFamilyProviderMock();

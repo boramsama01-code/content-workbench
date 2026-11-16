@@ -26,7 +26,8 @@ export const collectionRoutes = Router();
 const processStartedAt = Date.now() - process.uptime() * 1000;
 const channelIdSchema = z.union([z.literal("all"), z.coerce.number().int().positive()]);
 collectionRoutes.get("/collection/overview", ah(async (req, res) => {
-  const q = parse(z.object({ channelId: channelIdSchema, date: collectionDateSchema.optional() }), req.query);
+  const q = parse(z.object({ channelId: channelIdSchema, date: collectionDateSchema.optional(), subcategory: z.string().min(1).max(40).optional() }), req.query);
+  if (q.subcategory && q.channelId === "all") throw new HttpError(400, "소분류 현황은 채널 하나를 선택해 주세요.");
   const db = getDb(), now = new Date(), date = q.date ?? kstDay(now);
   const { start, end } = collectionDayRange(date);
   const chs = (await orderedChannels(db)).filter(ch => q.channelId === "all" ? ch.active : ch.id === q.channelId);
@@ -42,8 +43,13 @@ collectionRoutes.get("/collection/overview", ah(async (req, res) => {
     ? { ok: parsedTest.data.ok, at: naverTest.at.toISOString() } : null;
   const [scheduled] = await db.select({ startedAt: runs.startedAt }).from(runs).where(eq(runs.trigger, "schedule")).orderBy(desc(runs.id)).limit(1);
   const rows = await Promise.all(chs.map(async ch => {
-    const ruleRows = await db.select({ id: searchRules.id, normalizedQuery: searchRules.normalizedQuery, endpoint: searchRules.endpoint, enabled: searchRules.enabled, deletedAt: searchRules.deletedAt }).from(searchRules).where(eq(searchRules.channelId, ch.id));
-    const boards = await db.select({ id: officialSources.id }).from(officialSources).where(and(eq(officialSources.channelId, ch.id), eq(officialSources.enabled, true), sql`${officialSources.adapter} is not null and ${officialSources.verifiedAt} is not null`));
+    if (q.subcategory && q.subcategory !== "미분류" && !validSubcategory(ch.slug, q.subcategory, ch.categories)) throw new HttpError(400, "이 채널의 소분류를 선택해 주세요.");
+    const newsOnly = isHighscoopNewsCategory(ch, q.subcategory);
+    const itemScope = q.subcategory ? q.subcategory === "미분류" ? sql`coalesce(${contentItems.subcategory}, '') = ''` : eq(contentItems.subcategory, q.subcategory) : undefined;
+    const ruleRows = await db.select({ id: searchRules.id, normalizedQuery: searchRules.normalizedQuery, endpoint: searchRules.endpoint, subcategory: searchRules.subcategory, enabled: searchRules.enabled, deletedAt: searchRules.deletedAt }).from(searchRules).where(eq(searchRules.channelId, ch.id));
+    const scopedRules = q.subcategory ? ruleRows.filter(rule => (rule.subcategory || "미분류") === q.subcategory) : ruleRows;
+    const boardRows = await db.select().from(officialSources).where(and(eq(officialSources.channelId, ch.id), eq(officialSources.enabled, true), sql`${officialSources.adapter} is not null and ${officialSources.verifiedAt} is not null`));
+    const boards = newsOnly ? [] : boardRows.filter(board => !q.subcategory || boardMatchesCategory(ch.slug, board, q.subcategory, ch.categories));
     const [counts] = await db.select({
       newItems: sql<number>`count(*)::int`,
       pending: sql<number>`count(*) filter (where ${contentItems.reviewStatus} in ('pending','review_required'))::int`,
@@ -51,19 +57,19 @@ collectionRoutes.get("/collection/overview", ah(async (req, res) => {
       noticeCandidates: sql<number>`count(*) filter (where ${noticeIntentSql()} = 'candidate')::int`,
       noticeUncertain: sql<number>`count(*) filter (where ${noticeIntentSql()} = 'uncertain')::int`,
       noticeReports: sql<number>`count(*) filter (where ${noticeIntentSql()} in ('retrospective','off_topic','closed'))::int`,
-    }).from(contentItems).leftJoin(sourceDocuments, eq(sourceDocuments.id, itemSourceIdSql())).where(and(eq(contentItems.channelId, ch.id), eq(contentItems.isSample, !!req.session.demo), eq(contentItems.excluded, false), inArray(contentItems.origin, ["collected", "discovered"]), gte(contentItems.createdAt, start), lt(contentItems.createdAt, end)));
-    const categoryRows = await db.select({ subcategory: contentItems.subcategory, count: sql<number>`count(*)::int` }).from(contentItems).where(and(eq(contentItems.channelId, ch.id), eq(contentItems.isSample, !!req.session.demo), eq(contentItems.excluded, false), inArray(contentItems.origin, ["collected", "discovered"]), gte(contentItems.createdAt, start), lt(contentItems.createdAt, end))).groupBy(contentItems.subcategory);
-    const categories = [...channelCategories(ch.slug, ch.categories), "미분류"].map(label => ({ label, newItems: categoryRows.filter(r => categoryLabel(r.subcategory) === label).reduce((n, r) => n + r.count, 0) }));
+    }).from(contentItems).leftJoin(sourceDocuments, eq(sourceDocuments.id, itemSourceIdSql())).where(and(eq(contentItems.channelId, ch.id), itemScope, eq(contentItems.isSample, !!req.session.demo), eq(contentItems.excluded, false), inArray(contentItems.origin, ["collected", "discovered"]), gte(contentItems.createdAt, start), lt(contentItems.createdAt, end)));
+    const categoryRows = await db.select({ subcategory: contentItems.subcategory, count: sql<number>`count(*)::int` }).from(contentItems).where(and(eq(contentItems.channelId, ch.id), itemScope, eq(contentItems.isSample, !!req.session.demo), eq(contentItems.excluded, false), inArray(contentItems.origin, ["collected", "discovered"]), gte(contentItems.createdAt, start), lt(contentItems.createdAt, end))).groupBy(contentItems.subcategory);
+    const categories = (q.subcategory ? [q.subcategory] : [...channelCategories(ch.slug, ch.categories), "미분류"]).map(label => ({ label, newItems: categoryRows.filter(r => categoryLabel(r.subcategory) === label).reduce((n, r) => n + r.count, 0) }));
     const [lastRun] = await db.select().from(runs).where(and(eq(runs.channelId, ch.id), eq(runs.kind, "collect"))).orderBy(desc(runs.id)).limit(1);
     const pendingJobs = await db.select({ id: jobs.id, status: jobs.status, createdAt: jobs.createdAt, leaseExpiresAt: jobs.leaseExpiresAt }).from(jobs).where(and(eq(jobs.channelId, ch.id), eq(jobs.type, "collect"), inArray(jobs.status, ["queued", "running"])));
-    const discovery = channelDiscoverySettings(ch);
-    const profile = Object.hasOwn(COLLECTION_PROFILES, ch.slug) ? COLLECTION_PROFILES[ch.slug] : undefined;
+    const discovery = !q.subcategory || newsOnly ? channelDiscoverySettings(ch) : null;
+    const profile = !newsOnly && Object.hasOwn(COLLECTION_PROFILES, ch.slug) ? COLLECTION_PROFILES[ch.slug] : undefined;
     const profileRules = profile ? (["news", "blog"] as const).flatMap(endpoint => profile[endpoint].map(query => {
       const matches = ruleRows.filter(r => r.normalizedQuery === normalizeQuery(query) && r.endpoint === endpoint);
       const existing = matches.find(r => !r.deletedAt) ?? matches[0];
       return { query, endpoint, state: !existing ? "missing" as const : existing.deletedAt ? "removed" as const : existing.enabled ? "active" as const : "paused" as const };
     })) : [];
-    return { id: ch.id, version: ch.version, slug: ch.slug, name: ch.name, active: ch.active, queries: ruleRows.filter(r => r.enabled && !r.deletedAt).length, discoveryQueries: discovery?.enabled ? discovery.queries.length : 0, boards: boards.length, budget: ch.budget.naverCallsPerRun,
+    return { id: ch.id, version: ch.version, slug: ch.slug, name: ch.name, active: ch.active, queries: scopedRules.filter(r => r.enabled && !r.deletedAt).length, discoveryQueries: discovery?.enabled ? discovery.queries.length : 0, boards: boards.length, budget: ch.budget.naverCallsPerRun,
       categories,
       profile: profile ? { label: profile.label, count: profileRules.length, missing: profileRules.filter(r => r.state === "missing").length, active: profileRules.filter(r => r.state === "active").length, paused: profileRules.filter(r => r.state === "paused").length, removed: profileRules.filter(r => r.state === "removed").length, rules: profileRules } : null, ...counts,
       jobs: pendingJobs.map(j => ({ id: j.id, status: j.status, createdAt: j.createdAt, stale: j.status === "queued" ? now.getTime() - j.createdAt.getTime() > 120_000 : !j.leaseExpiresAt || j.leaseExpiresAt < now })),

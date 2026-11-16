@@ -26,7 +26,7 @@ export function CollectionPanel({ date, detailed = false, subcategory = "" }: { 
   const today = useKstToday();
   const [localDate, setLocalDate] = useState<string | null>(null);
   const day = date || localDate || today;
-  const query = useQuery({ queryKey: ["collection", selected, day, subcategory], queryFn: () => api<CollectionOverview>(`/collection/overview?${qs({ channelId: selected, date: day, subcategory: selected !== "all" ? subcategory || undefined : undefined })}`),
+  const query = useQuery({ queryKey: subcategory && selected !== "all" ? ["collection", selected, day, subcategory] : ["collection", selected, day], queryFn: () => api<CollectionOverview>(`/collection/overview?${qs({ channelId: selected, date: day, subcategory: selected !== "all" ? subcategory || undefined : undefined })}`),
     refetchInterval: q => q.state.data?.channels.some(c => c.jobs.some(j => !j.stale)) ? 5000 : 60_000 });
   const finished = query.data?.channels.map(c => c.lastRun?.finishedAt ?? "").join("|");
   useEffect(() => { if (finished) qc.invalidateQueries({ queryKey: ["ch"] }); }, [finished, qc]);
