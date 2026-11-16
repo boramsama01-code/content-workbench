@@ -171,7 +171,7 @@ describe("목록에서 콘텐츠를 열고 돌아오기", () => {
     expect(mocks.api.mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
   });
 
-  it("수집함의 제출한 검색·아직 제출하지 않은 입력·필터·페이지와 스크롤을 복원하되 일괄 작업 선택은 복원하지 않는다", async () => {
+  it("모집 수집함의 검색·입력·필터·페이지·스크롤과 콘텐츠 제작용 공고 바구니를 복원한다", async () => {
     await render("inbox");
     await search("과학 캠프");
     await change(host.querySelector<HTMLSelectElement>('[aria-label="본문 상태"]')!, "not_fetched");
@@ -190,7 +190,16 @@ describe("목록에서 콘텐츠를 열고 돌아오기", () => {
     expect(query.get("review")).toBe("held"); expect(query.get("collectedOn")).toBe("2026-10-30"); expect(query.get("page")).toBe("2");
     expect(inboxInput().value).toBe("아직 검색하지 않은 문구");
     expect(host.querySelector('.work-mode-options button[aria-pressed="true"] strong')?.textContent).toBe("수동");
-    expect(window.scrollY).toBe(640); expect(checked()).toBe(false);
+    expect(window.scrollY).toBe(640); expect(host.querySelector<HTMLInputElement>('[aria-label="자료 1-2 선택"]')!.checked).toBe(true);
+    expect(host.querySelector('[aria-label="함께 만들 공고"]')?.textContent).toContain('자료 1-2');
+  });
+
+  it("모집 외 채널의 일괄 작업 선택은 상세 화면에서 돌아와도 복원하지 않는다", async () => {
+    mocks.selected=2;await render("inbox");
+    await act(async()=>host.querySelector<HTMLInputElement>('[aria-label="자료 2-1 선택"]')!.click());
+    expect(checked()).toBe(true);await leaveViaContent();await render("inbox");
+    expect(host.querySelector<HTMLInputElement>('[aria-label="자료 2-1 선택"]')!.checked).toBe(false);
+    expect(host.querySelector('[aria-label="함께 만들 공고"]')).toBeNull();
   });
 
   it("수집함 조회는 채널과 로그인 사용자별로 독립적이며 다른 채널의 페이지와 검색을 덮어쓰지 않는다", async () => {

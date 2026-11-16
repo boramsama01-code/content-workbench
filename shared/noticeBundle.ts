@@ -48,7 +48,7 @@ export function buildNoticeBundlePayload(bundle:NoticeBundle,title:string):Recor
   const issues=bundle.rows.flatMap(row=>[...(row.issue?[`${row.title}: ${row.issue}`]:[]),...noticeBundleRowFields(row).uncertainties.map(value=>`${row.title}: ${value}`)]);
   const schedule=(entry:ReturnType<typeof noticeBundleRowFields>['schedules'][number])=>{
     const point=(p:typeof entry.start)=>p?.date?[p.date,p.time].filter(Boolean).join(' '):'';
-    return [entry.label||entry.kind||'일정',entry.round,entry.raw||[point(entry.start),point(entry.end)].filter(Boolean).join(' ~ ')].filter(Boolean).join(' · ');
+    return [entry.label||entry.kind||'일정',entry.round,[point(entry.start),point(entry.end)].filter(Boolean).join(' ~ '),entry.raw].filter(Boolean).join(' · ');
   };
   const blocks=bundle.rows.flatMap((row,index)=>{
     const p=noticeBundleRowFields(row);

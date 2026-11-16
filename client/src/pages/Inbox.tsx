@@ -363,7 +363,6 @@ function TriageList({ rows, cid,noticeBasket,onBundle }: { rows: ListRow[]; cid:
     }else setLocalPicked(s=>{const next=new Set(s);next.has(id)?next.delete(id):next.add(id);return next;});
   };
   const toggleAll=()=>{if(!noticeBasket){setLocalPicked(all?new Set():new Set(rows.map(row=>row.item.id)));return;}
-    if(all){const ids=new Set(rows.map(row=>row.item.id));noticeBasket.update(previous=>previous.filter(row=>!ids.has(row.id)));return;}
     const additions=rows.filter(row=>eligible(row)&&!picked.has(row.item.id));if(additions.length+picked.size>NOTICE_BUNDLE_LIMIT)toast('err',`최대 ${NOTICE_BUNDLE_LIMIT}건까지 선택했습니다. 바구니에서 원하는 공고를 확인해 주세요.`);
     noticeBasket.update(previous=>[...previous,...additions.slice(0,NOTICE_BUNDLE_LIMIT-previous.length).map(choice)]);
   };
@@ -391,6 +390,7 @@ function TriageList({ rows, cid,noticeBasket,onBundle }: { rows: ListRow[]; cid:
       {picked.size > 0 ? (
         <div className="bulkbar" role="region" aria-label="선택한 항목 처리">
           <strong>{picked.size}건 선택</strong>
+          {noticeBasket&&<button type="button" className="btn sm" disabled={picked.size>=NOTICE_BUNDLE_LIMIT||!rows.some(row=>eligible(row)&&!picked.has(row.item.id))} onClick={toggleAll}>이 페이지에서 추가 선택 (최대 10건)</button>}
           {noticeBasket&&<button type="button" className="btn sm primary" disabled={picked.size<2} onClick={onBundle}>선택 공고로 콘텐츠 만들기</button>}
           <button className="btn sm" onClick={() => act("hold")}>보류</button>
           <button className="btn sm" onClick={() => act("pending")}>검토 대기로</button>
@@ -399,9 +399,9 @@ function TriageList({ rows, cid,noticeBasket,onBundle }: { rows: ListRow[]; cid:
         </div>
       ) : (
         <div className="row between">
-          <label className="check inbox-select-all">
+          {noticeBasket?<button type="button" className="btn sm inbox-select-all" disabled={!rows.some(eligible)} onClick={toggleAll}>이 페이지에서 추가 선택 (최대 10건)</button>:<label className="check inbox-select-all">
             <input type="checkbox" className="row-check" checked={all} onChange={toggleAll} /> 이 페이지 전체 선택
-          </label>
+          </label>}
           <span className="shortcut-hint hide-mobile">
             <span><kbd>J</kbd>/<kbd>K</kbd> 이동</span><span><kbd>Enter</kbd> 열기</span><span><kbd>X</kbd> 선택</span><span><kbd>H</kbd> 보류</span><span><kbd>E</kbd> 제외</span>
           </span>

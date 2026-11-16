@@ -15,7 +15,7 @@ describe('모집 공고 묶음의 기관별 사실 보존',()=>{
  it('기관별 학년과 지역, 학생 마감과 추천 마감을 같은 글에서도 구분해 보존한다',()=>{
   const bundle=fixture(),before=JSON.stringify(bundle),payload=buildNoticeBundlePayload(bundle,'영재학급, 우리 지역 조건부터');
   const copy=cardCopySchema.parse(payload.cardCopy),text=copy.pages.map(p=>p.body).join('\n');
-  for(const phrase of ['가 기관','현재 초등학교 5학년','가 지역 재학생만','학생 접수 11월 20일까지','교사 추천 11월 25일까지','나 기관','현재 중학교 1학년','나 지역 거주자','12월 1일 마감'])expect(text).toContain(phrase);
+  for(const phrase of ['가 기관','현재 초등학교 5학년','가 지역 재학생만','학생 접수 11월 20일까지','교사 추천 11월 25일까지','2026-11-20','2026-11-25','나 기관','현재 중학교 1학년','나 지역 거주자','12월 1일 마감','2026-12-01'])expect(text).toContain(phrase);
   expect(payload.organization).toBeNull();expect(payload.schedules).toEqual([]);expect(payload.deadline_type).toBe('unknown');
   expect(JSON.stringify(bundle)).toBe(before);
  });

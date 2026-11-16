@@ -8,20 +8,25 @@ import './noticeBundle.css';
 
 export type NoticeChoice={id:number;title:string;sourceStatus:string;sourceUrl?:string};
 const selectionKey='notice-bundle-selections:v1';
-function readSelections():Record<string,NoticeChoice[]>{try{
- const value=JSON.parse(sessionStorage.getItem(selectionKey)??'{}');
+function useNoticeScope(){const me=useQueryClient().getQueryData<{user?:string|null;recoveryScope?:string|null}>(['me']);return {id:JSON.stringify([me?.user??null,me?.recoveryScope??null]),persistent:!!me?.user};}
+function readSelections(key:string,persistent:boolean):Record<string,NoticeChoice[]>{if(!persistent)return {};try{
+ const value=JSON.parse(sessionStorage.getItem(key)??'{}');
  if(!value||typeof value!=='object'||Array.isArray(value))return {};
  return Object.fromEntries(Object.entries(value).filter(([key,rows])=>/^\d+$/.test(key)&&Array.isArray(rows)).map(([key,rows])=>[key,(rows as NoticeChoice[]).filter(row=>Number.isSafeInteger(row?.id)&&row.id>0&&typeof row.title==='string'&&typeof row.sourceStatus==='string').slice(0,NOTICE_BUNDLE_LIMIT)]));
 }catch{return {};}}
 /** Keep only selected labels, never a cached copy of the recruitment facts. */
 export function useNoticeBasket(channelId:number|undefined){
- const [all,setAll]=useState(readSelections);
+ const scope=useNoticeScope(),key=`${selectionKey}:${scope.id}`;
+ const [state,setAll]=useState(()=>({key,all:readSelections(key,scope.persistent)}));
+ const scoped=state.key===key?state:{key,all:readSelections(key,scope.persistent)};
+ if(state.key!==key)setAll(scoped);
  const update=(change:(rows:NoticeChoice[])=>NoticeChoice[])=>{if(channelId===undefined)return;setAll(previous=>{
-  const next={...previous,[channelId]:change(previous[channelId]??[]).slice(0,NOTICE_BUNDLE_LIMIT)};
-  try{sessionStorage.setItem(selectionKey,JSON.stringify(next));}catch{/* Selection remains available in this tab. */}
+  const all=previous.key===key?previous.all:readSelections(key,scope.persistent);
+  const next={key,all:{...all,[channelId]:change(all[channelId]??[]).slice(0,NOTICE_BUNDLE_LIMIT)}};
+  try{if(scope.persistent)sessionStorage.setItem(key,JSON.stringify(next.all));}catch{/* Selection remains available in this tab. */}
   return next;
  });};
- const choices=channelId===undefined?[]:all[channelId]??[];
+ const choices=channelId===undefined?[]:scoped.all[channelId]??[];
  return {choices,update,clear:()=>update(()=>[]),remove:(id:number)=>update(rows=>rows.filter(row=>row.id!==id))};
 }
 
@@ -46,10 +51,14 @@ const sourceLabels:Record<string,string>={pending:'원문·첨부 읽기 대기'
 const workLabels:Record<string,string>={queued:'선택한 공고를 읽을 준비 중입니다.',running:'원문과 첨부를 읽고 기관별로 정리하고 있습니다.',completed:'기관별 비교 초안을 만들었습니다.',succeeded:'기관별 비교 초안을 만들었습니다.',ready:'기관별 비교 초안을 만들었습니다.',failed:'작업을 완료하지 못했습니다.',cancelled:'작업이 중단됐습니다.'};
 
 export function NoticeBundleDialog({channelId,choices,onClose,onOpen}:{channelId:number;choices:NoticeChoice[];onClose:()=>void;onOpen:()=>void}){
- const key=`notice-bundle-request:${channelId}:${choices.map(row=>row.id).sort((a,b)=>a-b).join('-')}`,initial=useRef(readRequest(key,choices));
+ const scope=useNoticeScope(),key=`notice-bundle-request:${scope.id}:${channelId}:${choices.map(row=>row.id).sort((a,b)=>a-b).join('-')}`;
+ return <NoticeBundleDialogContent key={key} channelId={channelId} choices={choices} onClose={onClose} onOpen={onOpen} receiptKey={key} persistent={scope.persistent}/>;
+}
+function NoticeBundleDialogContent({channelId,choices,onClose,onOpen,receiptKey:key,persistent}:{channelId:number;choices:NoticeChoice[];onClose:()=>void;onOpen:()=>void;receiptKey:string;persistent:boolean}){
+ const initial=useRef(persistent?readRequest(key,choices):null);
  const [title,setTitle]=useState(initial.current?.request.title??''),[instruction,setInstruction]=useState(initial.current?.request.instruction??'');
  const [saved,setSaved]=useState<SavedRequest|null>(initial.current),sending=useRef(false),qc=useQueryClient();
- const persist=(value:SavedRequest)=>{setSaved(value);try{sessionStorage.setItem(key,JSON.stringify({request:value.request,...(value.reply?{reply:{jobId:value.reply.jobId,itemId:value.reply.itemId,status:value.reply.status}}:{})}));}catch{/* The running request still retains its ID in memory. */}};
+ const persist=(value:SavedRequest)=>{setSaved(value);try{if(persistent)sessionStorage.setItem(key,JSON.stringify({request:value.request,...(value.reply?{reply:{jobId:value.reply.jobId,itemId:value.reply.itemId,status:value.reply.status}}:{})}));}catch{/* The running request still retains its ID in memory. */}};
  const start=useMutation<NoticeBundleReply,Error,boolean>({retry:false,mutationFn:async(newRequest)=>{
   if(sending.current)throw new Error('요청을 처리하고 있습니다.');sending.current=true;
   const state=!newRequest&&saved?saved:{request:{itemIds:choices.map(row=>row.id),...(title.trim()?{title:title.trim()}:{}),...(instruction.trim()?{instruction:instruction.trim()}:{}),requestId:crypto.randomUUID()}};
@@ -76,7 +85,7 @@ export function NoticeBundleDialog({channelId,choices,onClose,onOpen}:{channelId
    {start.error&&<ErrorBox error={start.error}/>}{job.error&&<ErrorBox error={job.error} retry={()=>job.refetch()}/>}{result?.error&&<ErrorBox error={new Error(result.error)}/>}
    {ready?<GuardedLink className="btn primary" href={`/items/${channelId}/${result.itemId}`} onClick={onOpen}>기관별 비교와 콘텐츠 초안 열기</GuardedLink>:!saved?.reply&&<button type="button" className="btn primary" disabled={start.isPending||choices.length<2||choices.length>NOTICE_BUNDLE_LIMIT} onClick={()=>start.mutate(false)}>{start.isPending?'요청 중…':saved?'같은 요청 다시 확인':'공고를 읽고 초안 만들기'}</button>}
    {result&&['failed','cancelled'].includes(result.status)&&<button type="button" className="btn" disabled={start.isPending} onClick={()=>start.mutate(true)}>새 요청으로 다시 만들기</button>}
-   {ready&&<button type="button" className="btn ghost" onClick={()=>{setSaved(null);start.reset();try{sessionStorage.removeItem(key);}catch{/* New request remains local. */}}}>같은 공고로 새 구성 만들기</button>}
+   {ready&&<button type="button" className="btn ghost" onClick={()=>{setSaved(null);start.reset();try{if(persistent)sessionStorage.removeItem(key);}catch{/* New request remains local. */}}}>같은 공고로 새 구성 만들기</button>}
    {saved&&<p className="small muted">창을 닫아도 요청은 유지됩니다. 같은 공고를 다시 선택하면 이어서 확인할 수 있습니다.</p>}
    <button type="button" className="btn ghost" onClick={onClose}>{saved?'닫고 나중에 확인':'취소'}</button>
   </div>
