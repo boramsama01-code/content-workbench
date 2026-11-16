@@ -89,6 +89,10 @@ describe("카드 템플릿", () => {
     const eighth = await agent.get("/api/channels/1/templates/preview?key=cardnews14-cinematic-v1&page=7&size=sm");
     expect(eighth.status,JSON.stringify(eighth.body)).toBe(200);
     expect((await sharp(eighth.body).metadata()).width).toBe(360);
+    // Historical reading-template thumbnails must show the approved common
+    // closing too, rather than the external template's old profile ending.
+    const corner=await sharp(eighth.body).extract({left:0,top:0,width:1,height:1}).removeAlpha().raw().toBuffer();
+    [255,249,242].forEach((value,index)=>expect(Math.abs(corner[index]-value)).toBeLessThanOrEqual(2));
     expect((await agent.get("/api/channels/1/templates/preview?key=cardnews14-cinematic-v1&page=8")).status).toBe(400);
     expect((await agent.put("/api/channels/1/design").set(H).send({ cardTemplate: "set:missing" })).status).toBe(400);
   });
