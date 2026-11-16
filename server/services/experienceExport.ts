@@ -4,6 +4,9 @@ import type { Font } from "opentype.js";
 import { loadFonts, wrapText } from "./card";
 import type { StudioContent, StudioExportCheck } from "../../shared/studio";
 import { HttpError } from "../routes/util";
+import { studioPageCount } from "../../shared/studio";
+import { isHighscoopChannel } from "../../shared/highscoopOutro";
+import { renderHighscoopClosing } from "./highscoopClosing";
 
 type TextLayout={lines:string[];size:number;leading:number;fits:boolean};
 function fit(font:Font,text:string,width:number,height:number,max:number,min:number):TextLayout {
@@ -15,7 +18,7 @@ function geometry(content:StudioContent,index:number){const e=content.experience
  body:fit(fonts.regular,cover?[e.event,e.place,e.date].filter(Boolean).join(" · "):p?.body??"",920,cover?100:230,cover?30:38,cover?24:28),
  source:fit(fonts.regular,content.sourceLabel,920,50,22,18)};}
 export function checkExperienceExport(content:StudioContent):StudioExportCheck {
- const e=content.experience!;const result:StudioExportCheck={errors:[],warnings:[],pageCount:e.pages.length+1};
+ const e=content.experience!;const result:StudioExportCheck={errors:[],warnings:[],pageCount:studioPageCount(content)};
  if(e.pages.length<2)result.errors.push({field:"experience.pages",message:"본문을 두 장 이상 구성해 주세요. AI 초안을 만들거나 페이지를 추가할 수 있습니다."});
  if(!e.coverId)result.errors.push({field:"experience.coverId",message:"후기 표지에 쓸 사진이나 영상 대표 장면을 선택해 주세요."});
  for(let i=0;i<=e.pages.length;i++){const g=geometry(content,i),field=i?`experience.pages.${i-1}`:"title";
@@ -34,6 +37,7 @@ export function createExperienceRenderer(content:StudioContent,version:number,br
  const text=(font:Font,layout:TextLayout,x:number,y:number,color:string)=>layout.lines.map((line,i)=>`<path d="${font.getPath(line,x,y+i*layout.leading,layout.size).toPathData(2)}" fill="${color}"/>`).join("");
  const page=async(index:number)=>{
   if(!Number.isInteger(index)||index<0||index>=check.pageCount)throw new HttpError(400,"내보낼 페이지를 확인하세요.");
+  if(isHighscoopChannel(content.channel)&&index===check.pageCount-1)return sharp(await renderHighscoopClosing(accent)).png().toBuffer();
   const cover=index===0,p=e.pages[index-1],id=cover?e.coverId:p.mediaId,photo=id?images.get(id):undefined;
   if(id&&!photo)throw new HttpError(400,"영상의 대표 장면이 없습니다. 사진·영상 단계에서 장면 사진을 추가해 주세요.");
   const immersive=e.layout==="photo"&&cover;

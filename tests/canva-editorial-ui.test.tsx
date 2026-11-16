@@ -79,6 +79,17 @@ function reconciled(source: CanvaJobDto, body: any, status: string = 'needs_revi
 }
 
 describe("Canva editorial request and import UI", () => {
+  it("clarifies the HighScoop external Canva closing exception without changing existing template choices",async()=>{
+    const before=structuredClone(props.copy);
+    client.setQueryData(['channels'],[{id:3,slug:'opportunities',name:'HighScoop'}]);
+    await render();
+    expect(host.querySelector('[data-testid="highscoop-external-canva-closing"]')?.textContent).toContain('외부 Canva 원본·저장본은 마지막 장을 포함해 그대로 가져옵니다');
+    expect(host.querySelector('[data-testid="highscoop-external-canva-closing"]')?.textContent).toContain('공통 마지막 장은 스튜디오에서 새로 출력하는 카드에 적용됩니다');
+    expect(button('Canva 8장 만들기').disabled).toBe(false);expect(props.copy).toEqual(before);expect(writes()).toHaveLength(0);
+    client.setQueryData(['channels'],[{id:3,slug:'current-dialogue',name:'알리고당'}]);
+    await render();expect(host.querySelector('[data-testid="highscoop-external-canva-closing"]')).toBeNull();
+  });
+
   it("reopens an existing eight-page review without a new import or implicit acceptance", async () => {
     connection = { ...connection, autofill: false, capabilities: [] };
     jobs = [job(55, "needs_review")]; const original = structuredClone(props.copy);

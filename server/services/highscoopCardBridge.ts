@@ -1,6 +1,7 @@
 /** The generic card editor and Notion share the current page geometry for every brand. */
 import sharp from "sharp";
 import {editorialTemplateForKey,editorialTemplateForChannel,editorialBrandForChannel,type EditorialChannel,type EditorialBrand} from '../../shared/editorialTemplates';
+import {isHighScoopChannel} from '../../shared/highscoopTemplates';
 import type {CardCopy} from '../../shared/cardCopy';
 import type {CardCopyV2,PageDesign,PageDesigns} from '../../shared/familyDialogue';
 import {familyPageTitle} from './familyDialogueCard';
@@ -14,7 +15,7 @@ import { CanvaRestError } from "./canvaRest";
 import { buildNotionCanvaPptx, type NotionCanvaDocument, type NotionCanvaPhoto } from "./notionCanva";
 import { HttpError } from "../routes/util";
 
-export type HighScoopCardBridge = { templateKey: string; document: NotionCanvaDocument;brand?:EditorialBrand;soft?:string;pageAssetIds?:Array<number|undefined>;pageDesigns?:PageDesign[];pageImageOpacity?:Array<number|undefined>;outroProfileId?:string };
+export type HighScoopCardBridge = { templateKey: string; document: NotionCanvaDocument;brand?:EditorialBrand;soft?:string;pageAssetIds?:Array<number|undefined>;pageDesigns?:PageDesign[];pageImageOpacity?:Array<number|undefined>;outroProfileId?:string;includeOutro?:boolean };
 
 /** Preserve the generic editor's correctable overflow contract at the native boundary. */
 function validateTextLengths(document: NotionCanvaDocument) {
@@ -57,15 +58,18 @@ export function highScoopCardDocument(templateKey: string, cover: CardModel, pag
       };}),
     ],
   };
-  return { templateKey, document,...(channel?{brand:editorialBrandForChannel(channel)}:{}),soft:kit.soft,pageAssetIds:[copy?.cover.background?.assetId,...(copy?.pages.map(page=>page.background?.assetId)??pages.map(()=>undefined))],pageImageOpacity:[copy?.cover.background?.opacity,...(copy?.pages.map(page=>page.background?.opacity)??pages.map(()=>undefined))] };
+  return { templateKey, document,...(channel?{brand:editorialBrandForChannel(channel)}:{}),includeOutro:!!channel&&isHighScoopChannel(channel),soft:kit.soft,pageAssetIds:[copy?.cover.background?.assetId,...(copy?.pages.map(page=>page.background?.assetId)??pages.map(()=>undefined))],pageImageOpacity:[copy?.cover.background?.opacity,...(copy?.pages.map(page=>page.background?.opacity)??pages.map(()=>undefined))] };
 }
 
 /** Render every semantic field of an eight-slot manuscript without changing its stored schema. */
 export function editorialFamilyCardDocument(templateKey:string,copy:CardCopyV2,designs:PageDesigns,channel:EditorialChannel,context:FamilyDisplayContext={}):HighScoopCardBridge{
  const kit=editorialTemplateForChannel(channel,templateKey);
  if(!kit)throw new HttpError(422,'현재 공통 템플릿을 다시 선택해 주세요.');
- const assets=copy.pages.map(page=>{const bg=designs[page.id].background;return bg.assetId??(bg.inheritCover?designs.cover.background.assetId:undefined);});
- const pages:NotionCanvaDocument['pages']=copy.pages.map((page,index)=>{
+ const includeOutro=isHighScoopChannel(channel);
+ // Only a schema-declared brand outro may be replaced. Every factual page stays.
+ const contentPages=copy.pages.filter(page=>!includeOutro||page.id!=='outro');
+ const assets=contentPages.map(page=>{const bg=designs[page.id].background;return bg.assetId??(bg.inheritCover?designs.cover.background.assetId:undefined);});
+ const pages:NotionCanvaDocument['pages']=contentPages.map((page,index)=>{
   const design=designs[page.id],display=resolveFamilyDisplay(page,context),title=familyPageTitle(page);
   const notes=familyDisplayDescriptors(page).filter(item=>item.key!=='kicker'&&(item.key!=='pageNumber'||page.displayOverrides?.pageNumber!==undefined)).map(item=>display[item.key]).filter(Boolean);
   const body=design.interiorBody??editorialFamilyPageBody(page);
@@ -74,11 +78,13 @@ export function editorialFamilyCardDocument(templateKey:string,copy:CardCopyV2,d
   return {title,body:index===0?[body,display.kicker].filter(Boolean).join('\n'):body,...(interiorTemplate?{interiorTemplate}:{}),interiorSubtitle:display.kicker,emphasis:design.emphasis,footnote:[design.footnote,...notes].filter(Boolean).join('\n')};
  });
  const closing=copy.pages.find(page=>page.id==='outro');
- return {templateKey,document:{title:pages[0].title,coverStyle:'A',category:kit.category,categoryColor:kit.color,pages},brand:editorialBrandForChannel(channel),soft:kit.soft,pageAssetIds:assets,pageDesigns:copy.pages.map(page=>designs[page.id]),...(closing?.id==='outro'&&closing.fields.logoAssetId?{outroProfileId:closing.fields.logoAssetId}:{})};
+ return {templateKey,document:{title:pages[0].title,coverStyle:'A',category:kit.category,categoryColor:kit.color,pages},brand:editorialBrandForChannel(channel),includeOutro,soft:kit.soft,pageAssetIds:assets,pageDesigns:contentPages.map(page=>designs[page.id]),...(!includeOutro&&closing?.id==='outro'&&closing.fields.logoAssetId?{outroProfileId:closing.fields.logoAssetId}:{})};
 }
 
 /** Native Canva SVG is also the generic editor preview and publication raster source. */
 export async function highScoopCardPageSvg(bridge: HighScoopCardBridge, pageIndex: number, art: Buffer | null, credit: string,pageImages:ReadonlyMap<number,Buffer>&{credits?:ReadonlyMap<number,string>}=new Map()) {
+  const pageCount=bridge.document.pages.length+(bridge.includeOutro?1:0);
+  if(!Number.isInteger(pageIndex)||pageIndex<0||pageIndex>=pageCount)throw new HttpError(400,'카드 페이지를 확인해 주세요.');
   const assetId=bridge.pageAssetIds?.[pageIndex];
   const profileId=pageIndex===bridge.document.pages.length-1?bridge.outroProfileId:undefined;
   if(assetId&&profileId)throw new HttpError(422,'마지막 장의 선택한 프로필과 사진을 함께 배치하려면 장을 나눠 주세요. 두 원본과 원고는 보존했습니다.');
@@ -109,8 +115,8 @@ export async function highScoopCardPageSvg(bridge: HighScoopCardBridge, pageInde
     photos.push({ id: "generic_cover", bytes, mimeType: "image/jpeg" });
   }
   try {
-    const result = await buildNotionCanvaPptx(document, photos, { previewPage: pageIndex, previewOnly: true, includeOutro: false,brand:bridge.brand,soft:bridge.soft,pageAlignments:bridge.pageDesigns?.map(design=>design.alignment) });
-    if (!result.previewSvg || result.pageCount !== document.pages.length) throw new HttpError(500, "현재 템플릿의 페이지 수를 확인할 수 없습니다. 저장한 원고는 유지했습니다.");
+    const result = await buildNotionCanvaPptx(document, photos, { previewPage: pageIndex, previewOnly: true, includeOutro: !!bridge.includeOutro,brand:bridge.brand,soft:bridge.soft,pageAlignments:bridge.pageDesigns?.map(design=>design.alignment) });
+    if (!result.previewSvg || result.pageCount !== pageCount) throw new HttpError(500, "현재 템플릿의 페이지 수를 확인할 수 없습니다. 저장한 원고는 유지했습니다.");
     return result.previewSvg;
   } catch (error) {
     if (error instanceof CanvaRestError && error.status === 422) {

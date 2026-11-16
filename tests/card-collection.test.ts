@@ -11,15 +11,15 @@ import { sha256 } from "../server/services/text";
 
 describe("5 editorial layouts with 30 complete color sets", () => {
   const hashes = new Set<string>();
-  it.each(CARD_COLOR_VARIANTS)("$id renders all five pages and a production cover without sample art", async d => {
+  it.each(CARD_COLOR_VARIANTS)("$id renders every factual page and its brand closing where applicable", async d => {
     const { plan } = collectionSample(d.id);
-    expect(plan.count).toBe(5);
-    for (let page = 0; page < 5; page++) {
+    expect(plan.count).toBe(d.family === "recruitment" ? 6 : 5);
+    for (let page = 0; page < plan.count; page++) {
       const image = await renderCollectionPreview(d.id, page);
       expect(await sharp(image).metadata()).toMatchObject({ width: 1080, height: 1350, channels: 3, format: "jpeg" });
-      const hash = sha256(image); expect(hashes.has(hash)).toBe(false); hashes.add(hash);
+      if (!("highscoopClosing" in plan && plan.highscoopClosing && page === plan.count - 1)) { const hash = sha256(image); expect(hashes.has(hash)).toBe(false); hashes.add(hash); }
     }
-    expect(await sharp(await renderCollectionCover(plan.base, 5, null, "", d.id)).metadata()).toMatchObject({ width: 1080, height: 1350 });
+    expect(await sharp(await renderCollectionCover(plan.base, plan.count, null, "", d.id)).metadata()).toMatchObject({ width: 1080, height: 1350 });
     expect(() => checkCollectionTitle("매우 긴 제목을 임의로 자르지 않습니다. ".repeat(25), d.id)).toThrow(CardOverflowError);
   });
   it("keeps persisted designs readable and rejects unknown palette names", () => {

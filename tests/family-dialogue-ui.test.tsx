@@ -16,6 +16,7 @@ import { familyEvidenceFixture } from "./fixtures/familyEvidence";
 import { familyEvidenceView, validateFamilyEvidenceReferences } from "../server/services/familyEvidence";
 import { FAMILY_PROFILE_ASSET_ID, FAMILY_ENDING_ASSET_IDS } from "../shared/characterVariantAssets";
 import { editorialTemplateCatalogOptions } from "../shared/templateCatalog";
+import { HIGHSCOOP_CLOSING_COPY, highScoopClosingAccent } from "../shared/highscoopClosing";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), blob: vi.fn(), guard: { setDirty: vi.fn() } }));
 vi.mock("../client/src/api", async original => ({ ...await original<object>(), api: mocks.api, apiBlob: mocks.blob }));
@@ -245,6 +246,30 @@ describe("family dialogue v2 editor", () => {
     expect(button("저장된 카드로 캡션 자동 제안").disabled).toBe(true);
     await click("이전 요청 결과 확인");
     expect(mocks.api.mock.calls.filter(([request]) => request.endsWith('/generate'))).toHaveLength(1);
+  });
+
+  it.each(['highscoop:experience','reading-ink-lime-v1'])("shows the approved HighScoop closing for %s and preserves hidden old fields when saving",async(templateKey)=>{
+    saved.copy.templateKey=templateKey;
+    const family=saved as FamilyDialogueResponse;
+    family.pageDesigns.outro.outroPresentation={mode:'full_image',assetId:FAMILY_ENDING_ASSET_IDS[0]};
+    const original=structuredClone(saved.copy.pages[7]);
+    client.setQueryData(['channels'],[{id:3,name:'HighScoop',slug:'opportunities',accentColor:'#2457A6'}]);
+    await render();await selectPage('8페이지 · 닫는 표지');
+    expect(host.querySelector('[data-testid="highscoop-approved-closing"]')?.textContent).toContain(HIGHSCOOP_CLOSING_COPY.description);
+    expect(host.querySelector('[data-testid="highscoop-approved-closing"]')?.textContent).toContain(HIGHSCOOP_CLOSING_COPY.handle);
+    expect(host.querySelector('[aria-label="마지막 장 방식"]')).toBeNull();
+    expect(host.querySelector('[aria-label="마지막 장 프로필"]')).toBeNull();
+    expect(host.querySelector('[data-testid="family-display-fields"]')).toBeNull();
+    expect(host.querySelector('textarea[id$="-fields.cta"]')).toBeNull();
+    expect(host.querySelector('.page-background-editor')).toBeNull();
+    expect(host.querySelector('.family-ai')).toBeNull();
+    const accent=highScoopClosingAccent(templateKey.startsWith('highscoop:')?'#5ED7B5':'#2457A6');
+    expect(host.querySelector('[data-testid="highscoop-closing-design"]')?.textContent).toContain(accent);
+    const copied=familyCopyText(saved.copy as FamilyDialogueResponse['copy'],{...family,highscoopClosing:true});
+    expect(copied).toContain(HIGHSCOOP_CLOSING_COPY.action);expect(copied).not.toContain('@spacepenguin.co');
+    await selectPage('1페이지 · 표지');await input('fields.subtitle','직접 고친 표지 설명');await click('문구·디자인 저장');
+    expect(saved.copy.pages[7]).toEqual(original);
+    expect((saved as FamilyDialogueResponse).pageDesigns.outro.outroPresentation).toEqual({mode:'full_image',assetId:FAMILY_ENDING_ASSET_IDS[0]});
   });
 
   it("saves and reopens character revisions, preserves the selected profile across styles, and restores editable ending text",async()=>{

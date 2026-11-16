@@ -5,6 +5,7 @@ import { planCarousel, renderCarouselPage, renderCarouselPages } from "../server
 import { highScoopCardPageSvg } from "../server/services/highscoopCardBridge";
 import { HttpError } from "../server/routes/util";
 import { CardOverflowError } from "../server/services/card";
+import { HIGHSCOOP_CLOSING_COPY } from "../shared/highscoopClosing";
 
 const copy = (templateKey = "highscoop:conversation") => ({
   version: 1,
@@ -24,8 +25,9 @@ describe("current HighScoop kits in the generic card editor", () => {
   it("renders all six categories with the native rounded cover badge and original copy", async () => {
     for (const kit of HIGH_SCOOP_TEMPLATE_KITS) {
       const original = copy(kit.key), plan = planCarousel(input(original), { layout: "magazine", highscoopTemplateKey: kit.key });
-      expect(plan.count).toBe(3);
-      expect(plan.highscoopOutro).toBeUndefined();
+      expect(plan.count).toBe(4);
+      expect(plan.highscoopClosing?.appended).toBe(true);
+      expect(plan.highscoop?.includeOutro).toBe(true);
       expect(plan.copy).toEqual(original);
       const svg = await highScoopCardPageSvg(plan.highscoop!, 0, null, "");
       expect(svg).toContain('data-name="cover-category-badge"');
@@ -36,14 +38,17 @@ describe("current HighScoop kits in the generic card editor", () => {
     }
   });
 
-  it("preserves the last manuscript page and uses the native interior rather than an implicit outro", async () => {
+  it("preserves the last manuscript page and appends the approved native closing", async () => {
     const original = copy(), plan = planCarousel(input(original), { layout: "magazine" });
     const svg = await highScoopCardPageSvg(plan.highscoop!, 2, null, "");
     for (const text of [original.pages[1].title, original.pages[1].subtitle, original.pages[1].body]) expect(svg).toContain(text);
     expect(svg).not.toContain('data-name="follow-handle"');
     expect(plan.highscoop!.document.pages).toHaveLength(3);
+    const closing = await highScoopCardPageSvg(plan.highscoop!, 3, null, "");
+    expect(closing).toContain(HIGHSCOOP_CLOSING_COPY.follow);
+    expect(closing).toContain(HIGHSCOOP_CLOSING_COPY.handle);
     const pages = await renderCarouselPages(plan, { layout: "magazine" }, null, "");
-    expect(pages.map(page => page.title)).toEqual([original.cover.title, ...original.pages.map(page => page.title)]);
+    expect(pages.map(page => page.title)).toEqual([original.cover.title, ...original.pages.map(page => page.title), HIGHSCOOP_CLOSING_COPY.title]);
     for (const page of pages) expect(await sharp(page.bytes).metadata()).toMatchObject({ format: "jpeg", width: 1080, height: 1350 });
     expect(pages[2].altText).toContain(original.pages[1].body);
   });
@@ -67,8 +72,8 @@ describe("current HighScoop kits in the generic card editor", () => {
     const plan = planCarousel({ ...input(), payload }, { layout: "magazine", highscoopTemplateKey: "highscoop:gifted" });
     const source = plan.highscoop!.document.pages.map(page => [page.title, page.interiorSubtitle, page.body].join("\n")).join("\n");
     for (const fact of [payload.audience, payload.eligibility, payload.key_details, ...payload.uncertainties]) expect(source).toContain(fact);
-    expect(plan.highscoop!.document.pages).toHaveLength(plan.count);
-    expect(plan.highscoopOutro).toBeUndefined();
+    expect(plan.highscoop!.document.pages).toHaveLength(plan.count - 1);
+    expect(plan.highscoopClosing?.appended).toBe(true);
   });
 
   it("leaves legacy brand rendering intact and rejects malformed rich manuscripts without discarding their structure", () => {

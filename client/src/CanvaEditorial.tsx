@@ -18,6 +18,8 @@ import { readingMasterSourceApproved } from '../../shared/readingCanvaMasters';
 import { selectedFamilyEnding } from '../../shared/characterVariantAssets';
 import { CanvaLibraryPanel, CANVA_LIBRARY_QUERY_KEY, canSelectCanvaManualTemplate, safeCanvaLink, useCanvaTemplateLibrary } from './CanvaTemplateLibrary';
 import type { CanvaLibraryItem } from '../../shared/canvaTemplateLibrary';
+import type { Channel } from '../../shared/schema';
+import { isHighScoopChannel } from '../../shared/highscoopTemplates';
 
 const phaseLabels:Record<string,string>={validate:'템플릿 확인 중',images:'페이지 이미지 준비 중',autofill_prepare:'문구·이미지 연결 준비 중',autofill_submitting:'Canva에 새 디자인 요청 중',autofill_polling:'8장 디자인 만드는 중',folder_source_check:'Canva 원본 변경 확인 중',export_prepare:'완성된 디자인 확인 중',export_submitting:'8장 이미지 내보내는 중',export_polling:'내보내기 기다리는 중',download:'이미지 저장 중',complete:'8장 저장 완료'};
 type RequestBody=CanvaRequestBody;
@@ -30,6 +32,7 @@ function keepLibraryChoice(key:string,designId:string|null){try{sessionStorage.s
 
 export function CanvaEditorial({channelId,itemId,version,revisionId,copy,pageDesigns,disabled,onLocalRender}:{channelId:number;itemId:number;version:number;revisionId:number;copy:CardCopyV2;pageDesigns?:PageDesigns;disabled:boolean;onLocalRender?:()=>void}){
   const qc=useQueryClient(),base=`/channels/${channelId}/items/${itemId}/canva/jobs`,key=['canva-jobs',channelId,itemId];
+  const highScoop=isHighScoopChannel(qc.getQueryData<Channel[]>(['channels'])?.find(channel=>channel.id===channelId)??{});
   const connection=useQuery({queryKey:['canva-editorial-status'],queryFn:async()=>parseCanvaConnection(await api('/canva/editorial/status')),retry:false,staleTime:60_000});
   const masters=useQuery({queryKey:['canva-masters',channelId],queryFn:async()=>parseCanvaMasters(await api(`/channels/${channelId}/canva/masters`))});
   const jobs=useQuery({queryKey:key,queryFn:async()=>parseCanvaJobs(await api(base)),refetchInterval:q=>q.state.data?.items.some(j=>['queued','running'].includes(j.status))?3000:false});
@@ -162,6 +165,7 @@ export function CanvaEditorial({channelId,itemId,version,revisionId,copy,pageDes
   const manualOutput=canvaManualSnapshotSchema.safeParse(current?.result?.manualImport).success;
   const originalDesignIds=[...(masters.data?.items.map(master=>master.sourceId)??[]),...(library.data?.items.map(item=>item.designId)??[])];
   return <section className="canva-editorial stack" aria-label={preferLocal?'스튜디오 8장 디자인':'Canva 8장 디자인'}>
+    {highScoop&&<p className="notice small" data-testid="highscoop-external-canva-closing">외부 Canva 원본·저장본은 마지막 장을 포함해 그대로 가져옵니다. 공통 마지막 장은 스튜디오에서 새로 출력하는 카드에 적용됩니다.</p>}
     <div className="row between"><div><h3>8장 디자인 완성</h3><p className="small muted">{manualRecommended?'Canva에서 이 콘텐츠용 사본을 직접 편집한 뒤 8장을 가져와 대조할 수 있습니다.':libraryDesignId?'Canva의 배치·이미지와 기본 사진 출처를 유지하고 저장된 원고를 채웁니다.':preferLocal?'저장한 문구와 사진으로 선택한 스타일의 8장을 만듭니다.':'저장한 문구와 페이지 이미지를 Canva 템플릿에 넣습니다.'}</p></div><span className="pill">{manualRecommended?'직접 편집 · Canva':`자동 · ${preferLocal?'스튜디오':'Canva'}`}</span></div>
     <CanvaManualImport channelId={channelId} itemId={itemId} version={version} revisionId={revisionId} disabled={disabled} busy={!jobs.isSuccess||!!automaticDrawing||!!lostRequest||!!unresolved} connected={connection.data?.connected===true} recommended={manualRecommended} openRequest={manualOpenRequest} jobs={jobs.data?.items??[]} originalDesignIds={originalDesignIds} onBlockingChange={setManualBlocking} onReviewExisting={reviewExisting} onJob={job=>{setFocusedJobId(job.id);qc.setQueryData<{items:CanvaJobDto[]}>(key,old=>({items:[job,...(old?.items??[]).filter(item=>item.id!==job.id)]}));void qc.invalidateQueries({queryKey:key});}}/>
     {manualTemplateDesignId&&<div className="canva-manual-template" data-testid="canva-manual-template-selection"><strong>직접 편집용 원본 · {manualTemplate?.title??'선택한 Canva 원본'}</strong><p className="small">Canva 원본을 보관하고 이 콘텐츠용 사본을 만들어 편집하세요. 완성한 사본 링크를 위 입력창에 넣어 가져옵니다.</p>{manualTemplateUrl?<a className="btn sm" href={manualTemplateUrl} target="_blank" rel="noopener noreferrer">Canva 원본 열기 ↗</a>:<p className="small muted">선택한 원본의 현재 상태를 확인할 수 없습니다. 폴더에서 다른 원본을 확인해 주세요.</p>}</div>}

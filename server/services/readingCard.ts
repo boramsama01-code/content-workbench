@@ -9,12 +9,12 @@ import {CardOverflowError,loadFonts,wrapText} from './card';
 import {prepareReadingArtwork,readingArtworkInput} from './readingCardImages';
 import {loadReadingFont,wrapReadingText} from './readingCardFonts';
 import {rasterizeReadingSvg} from './readingCardRaster';
-import {HIGHSCOOP_PROFILE_ASSET_ID} from '../../shared/highscoopOutro';
-import {highscoopOutroDecorations,type HighscoopCardContext} from './highscoopOutroDecorations';
+import type {HighscoopCardContext} from './highscoopOutroDecorations';
+import {layoutHighscoopClosing,renderHighscoopClosing} from './highscoopClosing';
 
 export type ReadingTextRun=ReadingTextBox & {text:string;lines:string[];size:number;renderedLineHeight:number};
 type Options={imageDataUrl?:string;profileDataUrl?:string;imageCredit?:string;images?:ReadonlyMap<string,string>;measureOnly?:boolean;profileBacking?:boolean};
-type ReadingContext=FamilyDisplayContext & HighscoopCardContext;
+type ReadingContext=FamilyDisplayContext & HighscoopCardContext & {highscoopClosingAccent?:string;accent?:string};
 const escaped=(value:string)=>value.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const decimal=(value:number)=>String(Math.round(value*10000)/10000);
 function verifiedPng(value:string):string {
@@ -129,15 +129,15 @@ function orderedLayout(profile:ReadingCardProfile,pageNumber:number,values:Reado
 
 /** The same 46 values, fixed rectangles, and image ratios used by Autofill. */
 export function layoutReadingCard(copy:CardCopyV2,page:FamilyPage,context:ReadingContext={},options:Options={}) {
+  if(page.id==='outro'&&context.highscoopOutroTheme){
+    const result=layoutHighscoopClosing(context.highscoopClosingAccent??context.accent,{measureOnly:options.measureOnly});
+    const textRuns:ReadingTextRun[]=result.textRuns.map(run=>({...run,fontSize:run.size,fontWeight:/handle|action/.test(run.field)?700:400,lineHeight:run.lineHeight/run.size,maxLines:run.lines.length,renderedLineHeight:run.lineHeight}));
+    return {svg:result.svg,textRuns};
+  }
   const profile=readingProfileForTemplateKey(copy.templateKey);
   if(!profile) throw new Error('읽는 카드뉴스 스타일을 확인해 주세요.');
   const values=familyReadingTextValues(copy,context,{[page.id]:{imageCredit:options.imageCredit??context.imageCredit??''}});
-  const result=layoutReadingProfilePage(profile,page.page,values,{...options,profileBacking:page.id==='outro'&&!!context.highscoopOutroTheme&&page.fields.logoAssetId===HIGHSCOOP_PROFILE_ASSET_ID});
-  if(page.id!=='outro'||!context.highscoopOutroTheme)return result;
-  const layout=profile.pages[page.page-1],ink=layout.textBoxes.find(box=>box.field==='P08_BRAND_LINE')?.color??'#F6F1E7';
-  const shape=layout.shapes[0],accent=shape?(shape.type==='line'?shape.stroke:shape.fill):'#D5EF58';
-  const additions=highscoopOutroDecorations(context.highscoopOutroTheme,{mode:'reading',background:layout.background,ink,accent,handle:page.fields.handle,measureOnly:options.measureOnly});
-  return {svg:result.svg.replace('</svg>',`${additions.svg}</svg>`),textRuns:[...result.textRuns,...additions.textRuns.map(run=>({...run,fontSize:run.size,fontWeight:600,lineHeight:1.3,maxLines:1,renderedLineHeight:run.lineHeight}))]};
+  return layoutReadingProfilePage(profile,page.page,values,options);
 }
 
 /** Preflight checks exactly the same widths, line breaks and height limits,
@@ -187,6 +187,7 @@ export function approvedReadingProfileLogo(copy:CardCopyV2):string {
   return registeredProfileDataUrl(outro.fields.logoAssetId);
 }
 export async function renderReadingCard(copy:CardCopyV2,page:FamilyPage,design:PageDesign,context:ReadingContext={},image:Buffer|null=null,imageCredit='') {
+  if(page.id==='outro'&&context.highscoopOutroTheme)return renderHighscoopClosing(context.highscoopClosingAccent??context.accent);
   const ending=selectedFamilyEnding(page.id,design);
   if(ending)return renderRegisteredFamilyEnding(ending.id);
   const profile=readingProfileForTemplateKey(copy.templateKey)!;
@@ -206,9 +207,9 @@ export async function rasterizeReadingCardSvg(svg:string):Promise<Buffer>{
   return rasterizeReadingSvg(()=>svg);
 }
 export function readingPageText(copy:CardCopyV2,page:FamilyPage,context:ReadingContext={}):string[] {
+  if(page.id==='outro'&&context.highscoopOutroTheme)return layoutReadingCard(copy,page,context,{measureOnly:true}).textRuns.map(run=>run.text);
   const profile=readingProfileForTemplateKey(copy.templateKey)!;
   const values=familyReadingTextValues(copy,context);
   const texts=profile.pages[page.page-1].textBoxes.map(box=>values[box.field]).filter(Boolean);
-  if(page.id==='outro'&&context.highscoopOutroTheme)texts.push(...layoutReadingCard(copy,page,context,{measureOnly:true}).textRuns.filter(run=>run.field.startsWith('highscoop.')).map(run=>run.text));
   return texts;
 }

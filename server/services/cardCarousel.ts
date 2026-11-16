@@ -21,15 +21,17 @@ import { resolvedReadingPageDesigns } from "../../shared/readingPageImages";
 import { checkReadingCard, readingPageText, renderReadingCard } from "./readingCard";
 import { FAMILY_ENDING_FIXED_TEXT, selectedFamilyEnding } from "../../shared/characterVariantAssets";
 import { renderRegisteredFamilyEnding } from "./characterVariantAssets";
-import { HIGHSCOOP_HANDLE, HIGHSCOOP_OUTRO_THEMES, highscoopOutroTheme, isHighscoopChannel, type HighscoopOutroThemeId } from "../../shared/highscoopOutro";
-import { checkHighscoopOutro, renderHighscoopOutro } from "./highscoopOutro";
+import { highscoopOutroTheme, type HighscoopOutroThemeId } from "../../shared/highscoopOutro";
+import { isHighScoopChannel } from "../../shared/highscoopTemplates";
+import { HIGHSCOOP_CLOSING_COPY, highScoopClosingAccent } from "../../shared/highscoopClosing";
+import { renderHighscoopClosing } from "./highscoopClosing";
 import { editorialTemplateForKey } from "../../shared/editorialTemplates";
 import { editorialFamilyCardDocument, highScoopCardDocument, renderHighScoopCardPage, type HighScoopCardBridge } from "./highscoopCardBridge";
 
 type Block = CardModel["blocks"][number];
 type Section = { title: string; blocks: Block[] };
 export type ModelInput = Parameters<typeof buildCardModel>[0] & { subcategory?: string | null;channelCategories?:readonly string[]|null };
-export type CarouselPlan = { base: CardModel; pages: CardModel[]; count: number; copy?: CardCopy; highscoop?: HighScoopCardBridge; highscoopOutro?: HighscoopOutroThemeId; family?: { copy: CardCopyV2; designs: PageDesigns; context: FamilyCardContext } };
+export type CarouselPlan = { base: CardModel; pages: CardModel[]; count: number; copy?: CardCopy; highscoop?: HighScoopCardBridge; highscoopOutro?: HighscoopOutroThemeId; highscoopClosing?: { accent: string; appended: boolean }; family?: { copy: CardCopyV2; designs: PageDesigns; context: FamilyCardContext } };
 export type CarouselPageImages = ReadonlyMap<number, Buffer> & { credits?: ReadonlyMap<number, string> };
 const block = (field: string, label: string, text: unknown): Block => ({ field, label, text: Array.isArray(text) ? text.filter(Boolean).join("\n\n") : String(text ?? ""), maxLines: 30 });
 
@@ -60,7 +62,10 @@ export function planCarousel(input: ModelInput, style: CardStyle): CarouselPlan 
   const base = buildCardModel(input);
   const kit = editorialTemplateForKey(style.highscoopTemplateKey ?? input.payload.cardCopy?.templateKey);
   const channel={slug:input.channelSlug,name:input.channelName,categories:input.channelCategories};
-  const highscoopOutro = !kit && input.kind === "notice" && isHighscoopChannel(input.channelSlug) ? highscoopOutroTheme(input.subcategory, input.payload) : undefined;
+  const highScoop = isHighScoopChannel(channel);
+  const highscoopOutro = highScoop ? highscoopOutroTheme(input.subcategory, input.payload) : undefined;
+  const closingAccent = highScoopClosingAccent(kit?.color ?? input.accent);
+  const closingModel = (): CardModel => ({ ...base, title: HIGHSCOOP_CLOSING_COPY.title, subtitle: undefined, footer: "", blocks: [HIGHSCOOP_CLOSING_COPY.description, HIGHSCOOP_CLOSING_COPY.handle, HIGHSCOOP_CLOSING_COPY.action].map((text, i) => ({ field: `highscoop.closing.${i}`, text, maxLines: 3 })) });
   if (input.payload.cardCopy?.version === 2) {
     const parsed = familyCardCopySchema.safeParse(input.payload.cardCopy);
     if (!parsed.success) throw new HttpError(422, "8장 원고의 필드와 순서를 확인해 주세요. 기존 문구는 유지했습니다.");
@@ -69,10 +74,11 @@ export function planCarousel(input: ModelInput, style: CardStyle): CarouselPlan 
     const copy = parsed.data, designs = designResult.data;
     const caption = captionPackageSchema.safeParse(input.payload.captionPackage);
     const context: FamilyCardContext = { ...familyDisplayContext(copy, caption.success ? caption.data : null), brandName: familyBrandName(copy, input.channelName), accent: input.accent,
-      ...(isHighscoopChannel(input.channelSlug) ? { highscoopOutroTheme: highscoopOutroTheme(input.subcategory, input.payload) } : {}),
+      ...(highScoop ? { highscoopOutroTheme: highscoopOutro!, highscoopClosingAccent: closingAccent } : {}),
     };
     const readingProfile = readingProfileForTemplateKey(copy.templateKey);
     const models = copy.pages.map(page => {
+      if (highScoop && page.id === "outro") return { ...closingModel(), badge: "08 / 08" };
       const ending = selectedFamilyEnding(page.id, designs[page.id]);
       if (!ending&&!kit) { if (readingProfile) checkReadingCard(copy, page, context); else checkFamilyDialogueCard(page, designs[page.id], context, style); }
       return { ...base, title: ending?.label ?? familyPageTitle(page), subtitle: undefined,
@@ -80,13 +86,13 @@ export function planCarousel(input: ModelInput, style: CardStyle): CarouselPlan 
         badge: `${String(page.page).padStart(2, "0")} / 08`,
       };
     });
-    return { base: models[0], pages: models.slice(1), count: 8, family: { copy, designs, context },...(kit?{highscoop:editorialFamilyCardDocument(kit.key,copy,designs,channel,context)}:{}) };
+    return { base: models[0], pages: models.slice(1), count: 8, family: { copy, designs, context }, ...(highScoop ? { highscoopClosing: { accent: closingAccent, appended: false } } : {}),...(kit?{highscoop:editorialFamilyCardDocument(kit.key,copy,designs,channel,context)}:{}) };
   }
   let copy:CardCopy|undefined;
   try{copy=cardCopyFromStored(input.payload);}catch(error){if(kit)throw new HttpError(422,'저장된 카드 원고의 필드와 순서를 확인해 주세요. 기존 원고·사진은 유지했습니다.');throw error;}
   if (kit && input.payload.cardCopy && !copy) throw new HttpError(422, "저장된 카드 원고의 형식과 길이를 확인해 주세요. 기존 원고·사진은 유지했습니다.");
   if (copy) {
-    const count = copy.pages.length + 1;
+    const count = copy.pages.length + 1 + (highScoop ? 1 : 0);
     const cover: CardModel = { ...base, title: copy.cover.title, subtitle: copy.cover.subtitle,
       ...(copy.storyFormat === "discussion8" ? { editorial: { role: "cover", page: 1, count, background: copy.cover.background } } : {}),
     };
@@ -98,51 +104,48 @@ export function planCarousel(input: ModelInput, style: CardStyle): CarouselPlan 
     }));
     // A saved card has a stable identity. Overflow is actionable; it never silently splits or clips edited copy.
     if (cover.editorial&&!kit) checkEditorialCard(cover, style);
-    const closingTheme = copy.storyFormat ? undefined : highscoopOutro;
-    for (const [index, page] of pages.entries()) {
+    for (const page of pages) {
       if (kit) continue; // The shared native renderer checks the actual selected page geometry.
-      if (closingTheme && index === pages.length - 1) checkHighscoopOutro(page, style, closingTheme);
-      else if (page.editorial) checkEditorialCard(page, style);
+      if (page.editorial) checkEditorialCard(page, style);
       else if (style.collection) layoutCollectionBody(page, style.collection); else layoutCard(page, style);
     }
-    return { base: cover, pages, count, copy, ...(kit ? { highscoop: highScoopCardDocument(kit.key, cover, pages,channel,copy) } : {}), ...(closingTheme ? { highscoopOutro: closingTheme } : {}) };
+    const bridge = kit ? highScoopCardDocument(kit.key, cover, pages,channel,copy) : undefined;
+    return { base: cover, pages: highScoop ? [...pages, closingModel()] : pages, count, copy, ...(bridge ? { highscoop: bridge } : {}), ...(highScoop ? { highscoopOutro, highscoopClosing: { accent: closingAccent, appended: true } } : {}) };
   }
   const pages: CardModel[] = [];
-  const append = (title: string, blocks: Block[], depth = 0, closing = false) => {
+  const append = (title: string, blocks: Block[], depth = 0) => {
     const model = { ...base, title, blocks, badge: "02 / 10", footer: base.footer };
     try {
       // Bound the expensive font layout before drawing paths for an obviously overfull page.
       if (blocks.reduce((sum, b) => sum + b.text.length, 0) > 700) throw new CardOverflowError("본문", "다음 페이지에 이어서 배치");
       if (style.collection) layoutCollectionBody(model, style.collection); else layoutCard(model, style);
-      if (closing && highscoopOutro) checkHighscoopOutro(model, style, highscoopOutro);
       pages.push(model);
     }
     catch (e) {
       if (!(e instanceof CardOverflowError) || depth > 12 || e.field === "title" || e.field === "footer" || e.field === "brandLine") throw e;
       if (blocks.length > 1) {
         const mid = Math.ceil(blocks.length / 2);
-        append(title, blocks.slice(0, mid), depth + 1, closing); append(`${title.replace(/ · 계속$/, "")} · 계속`, blocks.slice(mid), depth + 1, closing);
+        append(title, blocks.slice(0, mid), depth + 1); append(`${title.replace(/ · 계속$/, "")} · 계속`, blocks.slice(mid), depth + 1);
       } else {
         const text = blocks[0]?.text ?? "";
         if (text.length < 40) throw e;
         let cut = Math.floor(text.length / 2);
         const boundary = text.lastIndexOf(" ", cut);
         if (boundary > cut / 2) cut = boundary;
-        append(title, [{ ...blocks[0], text: text.slice(0, cut).trim() }], depth + 1, closing);
-        append(`${title.replace(/ · 계속$/, "")} · 계속`, [{ ...blocks[0], text: text.slice(cut).trim() }], depth + 1, closing);
+        append(title, [{ ...blocks[0], text: text.slice(0, cut).trim() }], depth + 1);
+        append(`${title.replace(/ · 계속$/, "")} · 계속`, [{ ...blocks[0], text: text.slice(cut).trim() }], depth + 1);
       }
     }
     if (pages.length > 9) throw new CardOverflowError("본문", "전체 원고가 10장을 넘습니다. 핵심 내용 위주로 편집해 주세요. 내용은 자르지 않았습니다.");
   };
   const sections = carouselSections(input.kind, input.payload);
-  for (const [index, section] of sections.entries()) {
+  for (const section of sections) {
     const blocks = section.blocks.filter(b => b.text.trim());
-    append(section.title, blocks.length ? blocks : [block("closing", "함께 확인해요", "원문과 출처를 다시 살펴보고, 궁금한 점을 이야기해 보세요.")], 0, index === sections.length - 1);
+    append(section.title, blocks.length ? blocks : [block("closing", "함께 확인해요", "원문과 출처를 다시 살펴보고, 궁금한 점을 이야기해 보세요.")]);
   }
-  const count = pages.length + 1;
+  const count = pages.length + 1 + (highScoop ? 1 : 0);
   const numberedPages = pages.map((p, i) => ({ ...p, badge: `${String(i + 2).padStart(2, "0")} / ${String(count).padStart(2, "0")}`, footer: base.footer }));
-  if (highscoopOutro && numberedPages.length) checkHighscoopOutro(numberedPages.at(-1)!, style, highscoopOutro);
-  return { base, pages: numberedPages, count, ...(kit ? { highscoop: highScoopCardDocument(kit.key, base, numberedPages,channel) } : {}), ...(highscoopOutro ? { highscoopOutro } : {}) };
+  return { base, pages: highScoop ? [...numberedPages, closingModel()] : numberedPages, count, ...(kit ? { highscoop: highScoopCardDocument(kit.key, base, numberedPages,channel) } : {}), ...(highScoop ? { highscoopOutro, highscoopClosing: { accent: closingAccent, appended: true } } : {}) };
 }
 
 /** Lossless editable seed for old decks. Preserve their actual pagination and every block label. */
@@ -153,7 +156,7 @@ export function cardCopyFromPayload(input: ModelInput, style: CardStyle, templat
   return cardCopySchema.parse({
     version: 1, templateKey,
     cover: { title: plan.base.title || "카드뉴스", subtitle: plan.base.subtitle ?? "" },
-    pages: plan.pages.map((page, i) => ({
+    pages: (plan.highscoopClosing?.appended ? plan.pages.slice(0, -1) : plan.pages).map((page, i) => ({
       id: `body-${i + 1}`, title: page.title, subtitle: page.blocks.length === 1 ? page.blocks[0].label ?? "" : "",
       body: page.blocks.map(block => page.blocks.length > 1 && block.label ? `${block.label}\n${block.text}` : block.text).join("\n\n"),
     })),
@@ -199,8 +202,10 @@ export async function renderCarouselCover(model: CardModel, count: number, art: 
 /** One exact final page, shared by the editor preview, saved deck and publication export. */
 export async function renderCarouselPage(plan: CarouselPlan, pageIndex: number, style: CardStyle, art: Buffer | null, credit: string, pageImages: CarouselPageImages = new Map()): Promise<Buffer> {
   if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= plan.count) throw new HttpError(400, "카드 페이지를 확인해 주세요.");
+  const commonClosing = !!plan.highscoopClosing && pageIndex === plan.count - 1;
+  if (commonClosing && !plan.highscoop) return renderHighscoopClosing(plan.highscoopClosing!.accent);
   if (plan.highscoop) {
-    const ending=plan.family?selectedFamilyEnding(plan.family.copy.pages[pageIndex].id,plan.family.designs[plan.family.copy.pages[pageIndex].id]):undefined;
+    const ending=!commonClosing&&plan.family?selectedFamilyEnding(plan.family.copy.pages[pageIndex].id,plan.family.designs[plan.family.copy.pages[pageIndex].id]):undefined;
     if(ending)return renderRegisteredFamilyEnding(ending.id);
     return renderHighScoopCardPage(plan.highscoop, pageIndex, art ?? style.background ?? null, pageIndex===0?credit:'',pageImages);
   }
@@ -217,8 +222,7 @@ export async function renderCarouselPage(plan: CarouselPlan, pageIndex: number, 
       : renderFamilyDialogueCard(page, design, context, style, image ?? null, imageCredit);
   }
   const model = pageIndex === 0 ? plan.base : plan.pages[pageIndex - 1];
-  if (plan.highscoopOutro && pageIndex === plan.count - 1) return renderHighscoopOutro(model, style, plan.highscoopOutro);
-  const background = pageIndex === 0 ? plan.copy?.cover.background : plan.copy?.pages[pageIndex - 1].background;
+  const background = pageIndex === 0 ? plan.copy?.cover.background : plan.copy?.pages[pageIndex - 1]?.background;
   const bytes = background ? pageImages.get(background.assetId) : undefined;
   if (background && !bytes) throw new HttpError(422, "이 카드의 배경 이미지를 불러올 수 없습니다. 배경을 다시 선택해 주세요. 기존 저장본은 유지했습니다.");
   const pageCredit = background ? pageImages.credits?.get(background.assetId) ?? "배경 이미지" : pageIndex === 0 ? credit : "";
@@ -229,14 +233,14 @@ export async function renderCarouselPage(plan: CarouselPlan, pageIndex: number, 
 
 export async function renderCarouselPages(plan: CarouselPlan, style: CardStyle, art: Buffer | null, credit: string, pageImages: CarouselPageImages = new Map()) {
   const visibleAlt = (index:number,fallback:string[]) => {
-    if (plan.highscoopOutro && index === plan.count - 1) return conciseAlt([`하이스쿱 ${HIGHSCOOP_OUTRO_THEMES[plan.highscoopOutro].label} 뒷표지.`,...fallback,`HighScoop 계정 로고, ${HIGHSCOOP_HANDLE}, 팔로우 버튼.`]);
+    if (plan.highscoopClosing && index === plan.count - 1) return conciseAlt([HIGHSCOOP_CLOSING_COPY.altText]);
     if(!plan.family) return conciseAlt(fallback);
     const {copy,designs,context}=plan.family,page=copy.pages[index],design=resolvedReadingPageDesigns(copy,designs)[page.id],bg=design.background;
     const ending=selectedFamilyEnding(page.id,design);
     if(ending)return conciseAlt([`${index+1}페이지, ${ending.alt}`]);
     const displayContext={...context,imageCredit:bg.kind==='image'&&bg.assetId?pageImages.credits?.get(bg.assetId)??'배경 이미지':''};
     const pageText=readingProfileForTemplateKey(copy.templateKey)?readingPageText(copy,page,displayContext):familyPageText(page,displayContext);
-    return conciseAlt([`${index+1}페이지.`,...(page.id==='outro'&&context.highscoopOutroTheme?[`하이스쿱 ${HIGHSCOOP_OUTRO_THEMES[context.highscoopOutroTheme].label} 뒷표지.`,`${HIGHSCOOP_HANDLE}, 팔로우 버튼.`]:[]),...pageText]);
+    return conciseAlt([`${index+1}페이지.`,...pageText]);
   };
   const output = [{ title: plan.base.title, altText:visibleAlt(0,[`카드뉴스 표지. ${plan.base.title}`,plan.base.subtitle ?? "",plan.base.brandLine,plan.base.footer]), bytes: await renderCarouselPage(plan, 0, style, art, credit, pageImages) }];
   // Sequential rendering keeps the free instance's peak memory bounded.
@@ -256,7 +260,7 @@ export async function loadCardPages(db: DB, cover: typeof mediaAssets.$inferSele
     if (sha256(cover.bytes) !== cover.sha256) throw new HttpError(409, "카드 파일이 저장본과 다릅니다.");
     return [cover];
   }
-  if (manifest.version !== 1 || manifest.pages.length < 1 || manifest.pages.length > 10 || manifest.pages[0].id !== cover.id || new Set(manifest.pages.map(p => p.id)).size !== manifest.pages.length) throw new HttpError(409, "카드뉴스 구성 정보를 확인할 수 없습니다.");
+  if (manifest.version !== 1 || manifest.pages.length < 1 || manifest.pages.length > 20 || manifest.pages[0].id !== cover.id || new Set(manifest.pages.map(p => p.id)).size !== manifest.pages.length) throw new HttpError(409, "카드뉴스 구성 정보를 확인할 수 없습니다.");
   const rows = await db.select().from(mediaAssets).where(and(eq(mediaAssets.revisionId, cover.revisionId), eq(mediaAssets.contentItemId, cover.contentItemId), inArray(mediaAssets.id, manifest.pages.map(p => p.id))));
   return manifest.pages.map(p => {
     const row = rows.find(r => r.id === p.id);

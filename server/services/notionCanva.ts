@@ -28,6 +28,7 @@ import {notionInteriorTemplates} from '../../shared/notionPageTemplates';
 import {interiorTemplateElements} from './notionInteriorTemplates';
 import {HIGH_SCOOP_TEMPLATE_KITS,highScoopTemplateForCategory} from '../../shared/highscoopTemplates';
 import type {EditorialBrand} from '../../shared/editorialTemplates';
+import {HIGHSCOOP_CLOSING_COPY,HIGHSCOOP_CLOSING_LAYOUT,highScoopClosingAccent,isHighScoopClosingBrand} from '../../shared/highscoopClosing';
 
 export const NOTION_CANVA_GEOMETRY = { width: 1080, height: 1350, safe: { x: 96, y: 207, width: 888, height: 936 } } as const;
 /** Covers retain the original safe area; every interior uses this larger frame. */
@@ -39,14 +40,7 @@ export const NOTION_CANVA_SOURCE_GUIDE = 'QR을 스캔해 공식 공고를 확�
 export const NOTION_CANVA_TEASER_LABEL = '다음 편';
 export const NOTION_CANVA_TEASER_COMMENT = '궁금한 점은 댓글로 남겨 주세요';
 /** Added after every manuscript page; the source's final page is never replaced. */
-export const NOTION_CANVA_OUTRO = {
-  title: 'HighScoop 채널 소개',
-  follow: '아이의 관심에서 다음 도전까지',
-  handle: '@highscoop.official',
-  introduction: '아이의 호기심을 놓치지 않고,\n함께 도전할 기회를 찾아봅니다.',
-  action: '다음 이야기도 궁금하다면, 하이스쿱을 찾아주세요.',
-  altText: 'HighScoop. 아이의 관심에서 다음 도전까지. @highscoop.official 검색창. 아이의 호기심을 놓치지 않고 함께 도전할 기회를 찾아봅니다.'
-} as const;
+export const NOTION_CANVA_OUTRO = HIGHSCOOP_CLOSING_COPY;
 export const NOTION_CANVA_CATEGORY_COLORS: Record<string, string> = Object.fromEntries(HIGH_SCOOP_TEMPLATE_KITS.map(kit=>[kit.category,kit.color]));
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const MAX_EXPORT_BYTES = 80 * 1024 * 1024;
@@ -285,15 +279,16 @@ function wrap(text:string,size:number,width:number,bold:boolean):string[] {
   return lines;
 }
 function fit(text:string,width:number,height:number,max:number,min:number,bold:boolean,label:string,leading=1.3) {
-  for(let size=max;size>=min;size-=2){const lines=wrap(text,size,width,bold);const lineHeight=size*leading;if(lines.length*lineHeight<=height)return {lines,size,lineHeight};}
+  for(let size=max;size>=min;size-=2){const lines=wrap(text,size,width,bold);const lineHeight=size*leading;if(lines.length*lineHeight<=height+1e-6)return {lines,size,lineHeight};}
   const page=/^page-(\d+)-(title|body|footer)$/.exec(label);
   const location=label==='cover-title'||label==='cover-question'?'표지 제목':label==='cover-caption'?'표지 설명':label==='cover-footer'?'표지 각주·출처':/^source-\d+-title$/.test(label)||label==='sources-heading'?'원문 제목':label==='sources-body'?'원문 확인 설명':label==='sources-footer'?'원문 확인 각주':label==='teaser-title'?'다음 편 제목':label==='teaser-body'?'다음 편 설명':page?`${page[1]}장 ${page[2]==='title'?'제목':page[2]==='footer'?'각주·출처':'본문'}`:'입력한';
   const schedule=/^schedule-cell-(\d+)-(\d+)-text$/.exec(label);
   invalid(`${schedule?`기관별 일정표 ${Number(schedule[1])===0?'머리글':`${schedule[1]}행`} ${Number(schedule[2])+1}열`:location} 원고가 페이지에 너무 깁니다. 문장을 줄이거나 장을 나눠 주세요. 원고를 자르지 않았습니다.`);
 }
-function box(id:number,name:string,text:string,x:number,y:number,w:number,h:number,max:number,min:number,ink:string,bold=false,accent?:{phrase:string;color:string},align:'l'|'ctr'='l',leading=1.3,layout?:ReturnType<typeof fit>) {
+function box(id:number,name:string,text:string,x:number,y:number,w:number,h:number,max:number,min:number,ink:string,bold=false,accent?:{phrase:string;color:string},align:'l'|'ctr'='l',leading=1.3,layout?:ReturnType<typeof fit>,opacity=100000) {
   const fitted=layout??fit(text,w,h,max,min,bold,name,leading);
-  const run=(value:string,c:string)=>`<a:r><a:rPr lang="ko-KR" sz="${Math.round(fitted.size*75)}" b="${bold?1:0}" dirty="0"><a:solidFill><a:srgbClr val="${color(c)}"/></a:solidFill><a:latin typeface="${CANVA_PPTX_FONT}"/><a:ea typeface="${CANVA_PPTX_FONT}"/><a:cs typeface="${CANVA_PPTX_FONT}"/></a:rPr><a:t xml:space="preserve">${xml(value)}</a:t></a:r>`;
+  const paint=(c:string)=>`<a:solidFill>${opacity===100000?`<a:srgbClr val="${color(c)}"/>`:`<a:srgbClr val="${color(c)}"><a:alpha val="${opacity}"/></a:srgbClr>`}</a:solidFill>`;
+  const run=(value:string,c:string)=>`<a:r><a:rPr lang="ko-KR" sz="${Math.round(fitted.size*75)}" b="${bold?1:0}" dirty="0">${paint(c)}<a:latin typeface="${CANVA_PPTX_FONT}"/><a:ea typeface="${CANVA_PPTX_FONT}"/><a:cs typeface="${CANVA_PPTX_FONT}"/></a:rPr><a:t xml:space="preserve">${xml(value)}</a:t></a:r>`;
   const paragraphs=fitted.lines.map(line=>{
     const at=accent?.phrase?line.indexOf(accent.phrase):-1;
     const runs=at>=0?run(line.slice(0,at),ink)+run(accent!.phrase,accent!.color)+run(line.slice(at+accent!.phrase.length),ink):run(line,ink);
@@ -314,6 +309,10 @@ function rectangle(id:number,name:string,x:number,y:number,w:number,h:number,fil
 function outlinedRectangle(id:number,name:string,x:number,y:number,w:number,h:number,fill:string,stroke:string,radius=Math.min(w,h)*.12) {
   const adjustment=Math.round(cornerRadius(w,h,false,radius)/Math.min(w,h)*100000);
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${transform(x,y,w,h)}<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val ${adjustment}"/></a:avLst></a:prstGeom><a:solidFill><a:srgbClr val="${color(fill)}"/></a:solidFill><a:ln w="${emu(1.5)}"><a:solidFill><a:srgbClr val="${color(stroke)}"/></a:solidFill></a:ln></p:spPr></p:sp>`;
+}
+function searchMagnifier(id:number,name:string,x:number,y:number,radius:number,stroke:string,strokeWidth:number,handle=false) {
+  const offset=handle?radius*2-3:0,extent=handle?14:radius*2;
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${transform(x+offset,y+offset,extent,extent)}<a:prstGeom prst="${handle?'line':'ellipse'}"><a:avLst/></a:prstGeom><a:noFill/><a:ln w="${emu(strokeWidth)}" cap="rnd"><a:solidFill><a:srgbClr val="${color(stroke)}"/></a:solidFill></a:ln></p:spPr></p:sp>`;
 }
 function stepArrow(id:number,name:string,x:number,y:number,w:number,h:number) {
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${transform(x,y,w,h)}<a:prstGeom prst="chevron"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="888888"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
@@ -390,14 +389,17 @@ export async function buildNotionCanvaPptx(value:NotionCanvaDocument, photos:Not
   if(inspecting(0)&&document.coverStyle==='A'&&!coverPhoto)warnings.push('표지 사진이 없어 A 표지를 검정 정보형으로 만들었습니다.');
   if(inspecting(0)&&document.coverStyle==='B'&&coverPhoto)warnings.push('B는 질문 타이포 표지이므로 표지 사진은 표시하지 않습니다. 원본 사진은 Studio에 보존됩니다.');
   const brand=options.brand;
-  const outro=brand?{title:`${brand.name} 채널 소개`,follow:brand.follow,handle:brand.handle??brand.name,introduction:brand.introduction,action:brand.action}:NOTION_CANVA_OUTRO;
+  const standardClosing=isHighScoopClosingBrand(brand);
+  const outro=standardClosing?NOTION_CANVA_OUTRO:{title:`${brand!.name} 채널 소개`,follow:brand!.follow,handle:brand!.handle??brand!.name,introduction:brand!.introduction,action:brand!.action};
   const readBrand=async(file:string|undefined,id:string)=>{
     if(!file)return undefined;
     try{return await readMedia(await fs.readFile(path.resolve(process.cwd(),file)),id);}
     catch(error){if(!brand||brand.id==='highscoop')throw error;return undefined;}
   };
-  const logo=await readBrand(brand?brand.logoPath:'assets/branding/highscoop-magazine-color.png','logo-color');
+  const logo=await readBrand(standardClosing?HIGHSCOOP_CLOSING_LAYOUT.logoPath:brand?.logoPath,'logo-color');
   const darkLogo=brand&&!brand.darkLogoPath?logo?await readMedia(await sharp(logo.bytes).negate({alpha:false}).png().toBuffer(),'logo-dark'):undefined:await readBrand(brand?brand.darkLogoPath:'assets/branding/highscoop-magazine-dark.png','logo-dark');
+  const closingIcecream=includeOutro&&standardClosing?await readBrand(HIGHSCOOP_CLOSING_LAYOUT.icecreamPath,'closing-icecream'):undefined;
+  const closingLightbulb=includeOutro&&standardClosing?await readBrand(HIGHSCOOP_CLOSING_LAYOUT.lightbulbPath,'closing-lightbulb'):undefined;
   let educationLogos:EducationOfficeLogo[]=[];const educationMedia=new Map<string,Media>();
   const logoPages=document.pages.filter((page,index)=>!page.interiorTemplate&&page.infographic==='admissions_logo_calendar'&&(!options.previewOnly||options.previewPage===index));
   if(logoPages.length){
@@ -409,7 +411,7 @@ export async function buildNotionCanvaPptx(value:NotionCanvaDocument, photos:Not
     }
     for(const key of keys){const asset=educationLogos.find(item=>item.key===key)!;educationMedia.set(key,await readMedia(asset.bytes,`education-${key}`));}
   }
-  const allMedia=[logo,darkLogo,...media.values(),...educationMedia.values()].filter((item):item is Media=>!!item);
+  const allMedia=[logo,darkLogo,closingIcecream,closingLightbulb,...media.values(),...educationMedia.values()].filter((item):item is Media=>!!item);
   const fileFor=(item:Media)=>`${item.file}.${item.extension}`;
   const files:Record<string,Uint8Array>={};
   const put=(name:string,contents:string)=>{if(!options.previewOnly)files[name]=strToU8(contents);};
@@ -509,6 +511,39 @@ export async function buildNotionCanvaPptx(value:NotionCanvaDocument, photos:Not
     const footer=[page.footnote,page.sourceLabel].filter(value=>value?.trim()).join('\n');
     let background='#FFFFFF';
     if(index===followIndex){
+      if(standardClosing){
+        const layout=HIGHSCOOP_CLOSING_LAYOUT,copy=HIGHSCOOP_CLOSING_COPY;
+        background=layout.background;
+        image(logo,layout.logo.x,layout.logo.y,layout.logo.width,layout.logo.height,'contain');
+        for(const [name,content,frame,align]of [
+          ['outro-follow',copy.follow,layout.follow,'ctr'],
+          ['outro-introduction',copy.introductionText,layout.introduction,'l'],
+        ] as const)text(name,content,frame.x,frame.y,frame.width,frame.height,frame.fontSize,frame.fontSize,layout.ink,false,undefined,align,frame.lineHeight/frame.fontSize);
+        // The approved emoji are transparent assets extracted from the
+        // operator-supplied closing reference, rather than substituted glyphs.
+        // Keep their Unicode as editable/extractable native text too. A zero
+        // opacity run avoids missing-glyph boxes in importers without emoji fonts.
+        const emoji=(name:string,symbol:string,item:Media|undefined,frame:{x:number;y:number;width:number;height:number})=>{
+          if(!options.previewOnly)shapes.push(box(nextId++,`${name}-text`,symbol,frame.x,frame.y,frame.width,frame.height,frame.height,frame.height,layout.ink,false,undefined,'l',1,undefined,0));
+          image(item,frame.x,frame.y,frame.width,frame.height,'contain',symbol);
+        };
+        emoji('outro-introduction-emoji','🍨',closingIcecream,layout.icecream);
+        const search=layout.search,icon=layout.searchIcon;
+        if(!options.previewOnly){
+          shapes.push(outlinedRectangle(nextId++,'outro-search',search.x,search.y,search.width,search.height,'#FFFFFF',search.stroke,search.radius));
+          shapes.push(searchMagnifier(nextId++,'outro-search-icon-ring',icon.x,icon.y,icon.radius,layout.searchAccent,icon.strokeWidth));
+          shapes.push(searchMagnifier(nextId++,'outro-search-icon-handle',icon.x,icon.y,icon.radius,layout.searchAccent,icon.strokeWidth,true));
+        }
+        visual('outro-search',`<rect x="${search.x}" y="${search.y}" width="${search.width}" height="${search.height}" rx="${search.radius}" fill="#FFFFFF" stroke="${search.stroke}" stroke-width="1.5"/>`);
+        visual('outro-search-icon-ring',`<circle cx="${icon.x+icon.radius}" cy="${icon.y+icon.radius}" r="${icon.radius}" fill="none" stroke="${layout.searchAccent}" stroke-width="${icon.strokeWidth}"/>`);
+        visual('outro-search-icon-handle',`<line x1="${icon.x+icon.radius*2-3}" y1="${icon.y+icon.radius*2-3}" x2="${icon.x+icon.radius*2+11}" y2="${icon.y+icon.radius*2+11}" stroke="${layout.searchAccent}" stroke-width="${icon.strokeWidth}" stroke-linecap="round"/>`);
+        const handle=layout.handle;
+        text('outro-handle',copy.handle,handle.x,handle.y,handle.width,handle.height,handle.fontSize,handle.fontSize,layout.ink,true,undefined,'ctr',handle.lineHeight/handle.fontSize);
+        const action=layout.action,actionText=layout.actionText;
+        rect('outro-red-pill',action.x,action.y,action.width,action.height,highScoopClosingAccent(accent),false,true);
+        emoji('outro-action-emoji','💡',closingLightbulb,layout.lightbulb);
+        text('outro-action',copy.actionText,actionText.x,actionText.y,actionText.width,actionText.height,actionText.fontSize,actionText.fontSize,action.color,true,undefined,'l',actionText.lineHeight/actionText.fontSize);
+      }else{
       background='#FFF9F2';
       image(logo,110,112,860,290,'contain');
       text('outro-follow',outro.follow,80,474,920,116,44,40,INK,true,undefined,'ctr');
@@ -518,6 +553,7 @@ export async function buildNotionCanvaPptx(value:NotionCanvaDocument, photos:Not
       text('outro-handle',outro.handle,226,1094,628,54,34,30,INK,true,undefined,'ctr',1.2,'middle');
       rect('outro-red-pill',64,1209,952,65,accent,false,true);
       text('outro-action',outro.action,88,1219,904,45,28,24,INK,true,undefined,'ctr',1.2,'middle');
+      }
     }else if(referencesIndex>=0&&index>=referencesIndex&&index<referencesIndex+referencePageCount){
       const referenceOffset=(index-referencesIndex)*NOTION_SOURCE_REFERENCES_PER_PAGE;
       const pageReferences=references.slice(referenceOffset,referenceOffset+NOTION_SOURCE_REFERENCES_PER_PAGE);

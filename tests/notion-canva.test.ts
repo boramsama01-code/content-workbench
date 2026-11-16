@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import jsQR from 'jsqr';
 import type { DB } from '../server/db';
 import { loadReadingFont } from '../server/services/readingCardFonts';
+import {highScoopClosingAccent} from '../shared/highscoopClosing';
 import { buildNotionCanvaPptx, decodeNotionCanvaPngExport, downloadNotionCanvaExport, getNotionCanvaExportJob, getNotionCanvaImportJob, getNotionCanvaPages, NOTION_CANVA_OUTRO, NOTION_CANVA_SOURCE_TITLE, NOTION_CANVA_TEASER_COMMENT, NOTION_CANVA_TEXT_SYNC, submitNotionCanvaExport, submitNotionCanvaImport, type NotionCanvaDocument } from '../server/services/notionCanva';
 
 const db={} as DB;
@@ -161,8 +162,8 @@ describe('native editable Notion manuscript PPTX',()=>{
     const full=await buildNotionCanvaPptx(document(20));expect(full.pageCount).toBe(21);expect(full.sourcePageCount).toBe(20);
     const files=unzipSync(full.bytes),lastSource=strFromU8(files['ppt/slides/slide20.xml']),outro=strFromU8(files['ppt/slides/slide21.xml']);
     expect(lastSource).toContain('20장 제목');expect(lastSource).toContain('본문 20.');
-    for(const text of [NOTION_CANVA_OUTRO.follow,NOTION_CANVA_OUTRO.handle,...NOTION_CANVA_OUTRO.introduction.split('\n'),NOTION_CANVA_OUTRO.action])expect(outro).toContain(text);
-    expect(outro).toContain('name="outro-red-pill"');expect(outro).toContain('prst="roundRect"');expect(outro).toContain('srgbClr val="5ED7B5"');
+    for(const text of [NOTION_CANVA_OUTRO.follow,NOTION_CANVA_OUTRO.handle,NOTION_CANVA_OUTRO.introduction,NOTION_CANVA_OUTRO.action])expect(nativePlain(outro)).toContain(text.replaceAll(/\s/g,''));
+    expect(outro).toContain('name="outro-red-pill"');expect(outro).toContain('prst="roundRect"');expect(outro).toContain(`srgbClr val="${highScoopClosingAccent('#5ED7B5').slice(1)}"`);
     await expect(buildNotionCanvaPptx(document(1))).rejects.toMatchObject({code:'invalid_request'});
     await expect(buildNotionCanvaPptx(document(21))).rejects.toMatchObject({code:'invalid_request'});
     const input=document(2);input.pages[1].body='한글 원고가 너무 길면 문장을 자르지 않습니다. '.repeat(45);
@@ -279,7 +280,7 @@ describe('native editable Notion manuscript PPTX',()=>{
       const input=document(2);input.sourceReferences=urls.slice(0,count).map((url,i)=>({title:`공식 안내 ${i+1}`,url}));
       const result=await buildNotionCanvaPptx(input),files=unzipSync(result.bytes);expect(result).toMatchObject({sourcePageCount:2,pageCount:4});
       const source=strFromU8(files['ppt/slides/slide3.xml']);expect(source).toContain(NOTION_CANVA_SOURCE_TITLE);
-      expect(Object.keys(files).filter(file=>file.startsWith('ppt/media/'))).toHaveLength(2);
+      expect(Object.keys(files).filter(file=>file.startsWith('ppt/media/'))).toHaveLength(4);
       for(let i=0;i<count;i++)expect(decodedNativeQr(source,i+1).data).toBe(urls[i]);
       expect(strFromU8(files['ppt/slides/slide4.xml'])).toContain(NOTION_CANVA_OUTRO.handle);
     }
@@ -294,7 +295,7 @@ describe('native editable Notion manuscript PPTX',()=>{
     expect(plain).toContain(input.teaser.title.replaceAll(/\s/g,''));expect(plain).toContain(input.teaser.body.replaceAll(/\s/g,''));
     const teaserBody=nativeShape(teaser,'teaser-body'),teaserTitle=nativeShape(teaser,'teaser-title');expect(teaserBody.y).toBeGreaterThan(teaserTitle.y+teaserTitle.h);expect(teaserBody.y+teaserBody.h).toBeLessThan(nativeShape(teaser,'teaser-comment-pill').y);
     expect(teaser).toContain(NOTION_CANVA_TEASER_COMMENT);expect(teaser).toContain('teaser-comment-pill');
-    expect(strFromU8(files['ppt/slides/slide13.xml'])).toContain(NOTION_CANVA_OUTRO.action);
+    expect(nativePlain(strFromU8(files['ppt/slides/slide13.xml']))).toContain(NOTION_CANVA_OUTRO.action.replaceAll(/\s/g,''));
     const onlyTeaser=document(2);onlyTeaser.teaser=input.teaser;expect((await buildNotionCanvaPptx(onlyTeaser)).pageCount).toBe(4);
     const legacy=document(2);legacy.sourceReferences=[];expect((await buildNotionCanvaPptx(legacy)).pageCount).toBe(3);
   });

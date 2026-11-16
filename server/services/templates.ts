@@ -20,6 +20,8 @@ import { prepareReadingArtwork } from "./readingCardImages";
 import { rasterizeReadingSvg } from "./readingCardRaster";
 import {editorialTemplateForKey,EDITORIAL_TEMPLATE_VERSION} from '../../shared/editorialTemplates';
 import {renderEditorialTemplateSample} from './editorialTemplateSamples';
+import {isHighScoopChannel} from '../../shared/highscoopTemplates';
+import {renderHighscoopClosing} from './highscoopClosing';
 
 export class TemplateNotFound extends Error {}
 export class TemplatePreviewPageError extends Error {}
@@ -157,10 +159,11 @@ export async function renderPreview(db: DB, key: string, channel: Channel, page 
     if(kit){const jpeg=await renderEditorialTemplateSample(channel,key,page);if(cache.size>=60)cache.delete(cache.keys().next().value!);cache.set(ck,jpeg);return jpeg;}
     const style = await resolveStyle(db, key, channel.id);
     const profile = readingProfileForTemplateKey(key);
-    const pageCount = profile ? profile.pages.length : style.collection ? 5 : 1;
+    const pageCount = profile ? profile.pages.length : style.collection ? isHighScoopChannel(channel) ? 6 : 5 : 1;
     if (!Number.isInteger(page) || page < 0 || page >= pageCount) throw new TemplatePreviewPageError(`이 템플릿의 미리보기는 ${pageCount}장입니다.`);
     let jpeg: Buffer;
-    if (profile) jpeg = await renderReadingPreview(profile, page);
+    if (isHighScoopChannel(channel) && (profile ? page === profile.pages.length - 1 : !!style.collection && page === pageCount - 1)) jpeg = await renderHighscoopClosing(style.collection ? cardDesign(style.collection)?.accent ?? channel.accentColor : channel.accentColor);
+    else if (profile) jpeg = await renderReadingPreview(profile, page);
     else if (style.collection) jpeg = await renderCollectionPreview(style.collection, page, channel.name, channel.slug);
     else {
       const model = buildCardModel({ kind: channel.contentType, payload: SAMPLE[channel.contentType] ?? SAMPLE.notice, channelName: channel.name, channelSlug: channel.slug, accent: channel.accentColor, sourceOrg: "예시 기관", checkedDate: "2026-09-29" });

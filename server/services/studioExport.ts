@@ -15,6 +15,8 @@ import { checkCollectionTitle, layoutCollectionBody, renderCollectionBody, rende
 import { zipFiles } from "./zip";
 import { isCurrentEditorialTemplate } from "../../shared/editorialTemplates";
 import { createStudioCurrentRenderer } from "./studioCurrentKit";
+import { isHighscoopChannel } from "../../shared/highscoopOutro";
+import { renderHighscoopClosing } from "./highscoopClosing";
 
 type Fit = { lines: string[]; size: number; lineHeight: number; fits: boolean };
 function fit(font: Font, text: string, width: number, height: number, max: number, min: number): Fit {
@@ -69,7 +71,7 @@ export function checkStudioExport(content: StudioContent): StudioExportCheck {
   return result;
 }
 function collectionModel(content: StudioContent, index: number, brand: string, accent: string): CardModel {
-  return { accent, brandLine: brand, badge: `${String(index + 1).padStart(2, "0")} / 05`, title: index === 0 ? content.title : `핵심 이야기 ${String(index).padStart(2, "0")}`,
+  return { accent, brandLine: brand, badge: `${String(index + 1).padStart(2, "0")} / ${String(studioPageCount(content)).padStart(2,"0")}`, title: index === 0 ? content.title : `핵심 이야기 ${String(index).padStart(2, "0")}`,
     blocks: index === 0 ? [] : [{ field: `panels.${index - 1}.dialogue`, text: content.panels[index - 1].dialogue, maxLines: 30 }], footer: content.sourceLabel || brand };
 }
 function textPaths(font: Font, block: Fit, x: number, y: number, color: string) {
@@ -131,6 +133,7 @@ export function createStudioRenderer(content: StudioContent, version: number, br
   const page = async (index: number): Promise<Buffer> => {
     const comic = content.format === "웹툰";
     if (!Number.isInteger(index) || index < 0 || index >= check.pageCount) throw new HttpError(400, "내보낼 페이지를 확인하세요.");
+    if (!comic && isHighscoopChannel(content.channel) && index === check.pageCount - 1) return sharp(await renderHighscoopClosing(accent)).png().toBuffer();
     if (!comic && content.exportDesign.startsWith("set:")) {
       const id = content.exportDesign.slice(4);
       const model = collectionModel(content, index, brand, accent);

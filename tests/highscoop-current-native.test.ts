@@ -55,7 +55,7 @@ describe('current six-kit native layouts',()=>{
  it('uses exactly the current six category colors, blue admissions and a fully rounded editable search CTA',async()=>{
   expect(NOTION_CANVA_CATEGORY_COLORS).toEqual(Object.fromEntries(HIGH_SCOOP_TEMPLATE_KITS.map(kit=>[kit.category,kit.color])));expect(NOTION_CANVA_CATEGORY_COLORS['입시']).toBe('#72A7FF');
   const full=await buildNotionCanvaPptx(input({title:'본문',body:'내용',interiorTemplate:'text'}));const outro=slide(full.bytes,3);
-  expect(outro).toContain('name="outro-search"');expect(outro).toContain('fmla="val 50000"');expect(outro).toContain('@highscoop.official');expect(outro).toContain('srgbClr val="72A7FF"');
+  expect(outro).toContain('name="outro-search"');expect(outro).toContain('fmla="val 50000"');expect(outro).toContain('@highscoop.official');expect(outro).toContain('name="outro-search-icon-ring"');expect(outro).toContain('srgbClr val="FF493B"');
   const noOutro=await buildNotionCanvaPptx(input({title:'본문',body:'내용',interiorTemplate:'text'}),[],{includeOutro:false});expect(noOutro.pageCount).toBe(2);expect(slide(noOutro.bytes)).not.toContain('outro-search');
  });
  it('round-trips link-owned asset IDs and permits a captionless capture without relaxing the generic copy schema',()=>{

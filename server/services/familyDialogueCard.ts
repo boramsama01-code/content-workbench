@@ -8,8 +8,8 @@ import { familyDisplayDescriptors, resolveFamilyDisplay, type FamilyDisplayConte
 import { CardOverflowError, loadFonts, wrapText, type CardStyle } from "./card";
 import { selectedFamilyEnding } from "../../shared/characterVariantAssets";
 import { registeredProfileDataUrl, renderRegisteredFamilyEnding } from "./characterVariantAssets";
-import { HIGHSCOOP_PROFILE_ASSET_ID } from "../../shared/highscoopOutro";
-import { highscoopOutroDecorations, type HighscoopCardContext } from "./highscoopOutroDecorations";
+import type { HighscoopCardContext } from "./highscoopOutroDecorations";
+import { layoutHighscoopClosing, renderHighscoopClosing } from "./highscoopClosing";
 
 const W = 1080, H = 1350, SAFE = 84, INNER = W - SAFE * 2;
 export const APPROVED_PARENT_LOGO_ID = "brand:space-penguin-company:20261101";
@@ -17,7 +17,7 @@ type Box = { x: number; y: number; width: number; height: number };
 type Weight = "regular" | "semibold" | "bold";
 export type FamilyTextRun = Box & { field: string; text: string; lines: string[]; size: number; lineHeight: number; align: "center" | "left" };
 type TextOptions = { field: string; size: number; min?: number; weight?: Weight; color?: string; leading?: number; maxLines?: number; vertical?: "top" | "middle"; align?: "center" | "left" };
-export type FamilyCardContext = { brandName: string; accent: string; sourceCredit?: string } & HighscoopCardContext;
+export type FamilyCardContext = { brandName: string; accent: string; sourceCredit?: string; highscoopClosingAccent?: string } & HighscoopCardContext;
 type RenderOptions = { imageDataUrl?: string; imageCredit?: string; parentLogoDataUrl?: string };
 
 const safeHex = (value: unknown, fallback: string) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
@@ -44,6 +44,7 @@ function fitText(font: Font, value: string, box: Box, opts: TextOptions) {
 
 /** Local draft renderer only. Canva exports have their own immutable final assets. */
 export function layoutFamilyDialogueCard(page: FamilyPage, design: PageDesign, context: FamilyCardContext, style: CardStyle, options: RenderOptions = {}) {
+  if (page.id === "outro" && context.highscoopOutroTheme) return layoutHighscoopClosing(context.highscoopClosingAccent ?? context.accent);
   const fonts = loadFonts(), elements: string[] = [], textRuns: FamilyTextRun[] = [];
   const collection = style.collection ? cardDesign(style.collection) : undefined;
   const C = collection ? { ...FAMILY_COLORS, charcoal: collection.bg, deepGreen: collection.bg, paper: collection.ink, butter: collection.accent, muted: collection.ink, panel: collection.soft } : FAMILY_COLORS;
@@ -167,7 +168,6 @@ export function layoutFamilyDialogueCard(page: FamilyPage, design: PageDesign, c
     const f = page.fields;
     if (options.parentLogoDataUrl) {
       if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(options.parentLogoDataUrl)) throw new Error("승인된 부모 브랜드 자산만 사용할 수 있습니다.");
-      if (context.highscoopOutroTheme && f.logoAssetId === HIGHSCOOP_PROFILE_ASSET_ID) rect(410, 183, 260, 260, "#FFFFFF", 130);
       elements.push(`<image x="380" y="193" width="320" height="240" preserveAspectRatio="xMidYMid meet" href="${options.parentLogoDataUrl}"/>`);
     }
     centered(f.brandName, 456, 125, { field: field("brandName"), size: 82, min: 42, weight: "bold", maxLines: 2 }, 900);
@@ -176,10 +176,6 @@ export function layoutFamilyDialogueCard(page: FamilyPage, design: PageDesign, c
     centered(f.brandLine, 735, 157, { field: field("brandLine"), size: 48, min: 32, weight: "semibold", maxLines: 4 });
     centered(f.cta, 969, 88, { field: field("cta"), size: 35, min: 28, color: accent, weight: "semibold", maxLines: 2 }, 748);
     centered(f.handle, 1116, 49, { field: field("handle"), size: 28, min: 21, maxLines: 1, color: muted });
-    if (context.highscoopOutroTheme) {
-      const additions = highscoopOutroDecorations(context.highscoopOutroTheme, { mode: "family", background: bg, ink, accent, handle: f.handle });
-      elements.push(additions.svg); textRuns.push(...additions.textRuns);
-    }
   }
 
   if (display.imageCredit) centered(display.imageCredit, 1191, 30, { field: displayField("imageCredit"), size: 20, min: 17, maxLines: 1, align: "center" });
@@ -194,7 +190,7 @@ function approvedParentLogo(page: FamilyPage): string | undefined {
 }
 
 export function checkFamilyDialogueCard(page: FamilyPage, design: PageDesign, context: FamilyCardContext, style: CardStyle) {
-  if (selectedFamilyEnding(page.id, design)) return [];
+  if (!(page.id === "outro" && context.highscoopOutroTheme) && selectedFamilyEnding(page.id, design)) return [];
   return layoutFamilyDialogueCard(page, design, context, style).textRuns;
 }
 
@@ -215,6 +211,7 @@ export async function prepareFamilyPageImage(bytes: Buffer, design: PageDesign):
 }
 
 export async function renderFamilyDialogueCard(page: FamilyPage, design: PageDesign, context: FamilyCardContext, style: CardStyle, image: Buffer | null = null, imageCredit = "") {
+  if (page.id === "outro" && context.highscoopOutroTheme) return renderHighscoopClosing(context.highscoopClosingAccent ?? context.accent);
   const ending = selectedFamilyEnding(page.id, design);
   if (ending) return renderRegisteredFamilyEnding(ending.id);
   const data = image ? await prepareFamilyPageImage(image, design) : null;
@@ -232,7 +229,8 @@ export function familyPageTitle(page: FamilyPage): string {
 }
 
 /** Only visible text, never internal IDs, is offered to alt-text tooling. */
-export function familyPageText(page: FamilyPage, context: FamilyDisplayContext = {}): string[] {
+export function familyPageText(page: FamilyPage, context: FamilyDisplayContext & HighscoopCardContext & {highscoopClosingAccent?:string;accent?:string} = {}): string[] {
+  if (page.id === "outro" && context.highscoopOutroTheme) return layoutHighscoopClosing(context.highscoopClosingAccent ?? context.accent, {measureOnly: true}).textRuns.map(run => run.text);
   const values: string[] = [];
   function visit(value: unknown, key = "") {
     if (["mode", "resourceId", "logoAssetId"].includes(key)) return;
