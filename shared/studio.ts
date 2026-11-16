@@ -36,8 +36,8 @@ export const studioPanelSchema = z.object({
   poseRefs: z.array(studioPoseReferenceSchema).max(4).refine(refs => new Set(refs.map(ref => ref.character)).size === refs.length, "한 컷에서 같은 캐릭터의 포즈는 하나만 선택하세요.").default([]).optional(),
 }).strict();
 export const studioContentSchema = z.object({
-  finishedDeck: z.object({ pages: z.array(z.object({ imageId: z.number().int().positive(), name: z.string().max(200), altText: z.string().max(1000).default(""), uploadId: z.string().uuid().optional() }).strict()).max(10).refine(pages => new Set(pages.map(p => p.imageId)).size === pages.length, "같은 이미지는 한 번만 넣어 주세요.") }).strict().nullable().default(null),
-  altTexts: z.array(z.string().max(1000)).max(10).default([]),
+  finishedDeck: z.object({ pages: z.array(z.object({ imageId: z.number().int().positive(), name: z.string().max(200), altText: z.string().max(1000).default(""), uploadId: z.string().uuid().optional() }).strict()).max(20).refine(pages => new Set(pages.map(p => p.imageId)).size === pages.length, "같은 이미지는 한 번만 넣어 주세요.") }).strict().nullable().default(null),
+  altTexts: z.array(z.string().max(1000)).max(20).default([]),
   experience: experienceSchema.nullable().default(null),
   videoProject: videoProjectSchema.nullable().optional(),
   subcategory: z.string().max(40).optional(),

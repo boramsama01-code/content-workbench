@@ -158,6 +158,9 @@ jobs:
       - name: Verify eight-page manual authoring without AI and safe resume
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node --import tsx scripts/manual-family-regression.mjs
+      - name: Verify SNS writing tasks, draft proposals and stale-edit protection
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        run: node scripts/sns-writing-regression.mjs
       - name: Verify automatic images, manual fallback and final page previews
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         run: node scripts/studio-automatic-regression.mjs
@@ -173,6 +176,7 @@ jobs:
             test-results/manual-family
             test-results/channel-navigation
             test-results/studio-automatic-browser
+            test-results/sns-writing
             test-results/asset-library-browser
             test-results/notion-interior-templates
             test-results/notion-canva-autosave

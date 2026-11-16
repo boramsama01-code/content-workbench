@@ -12,6 +12,7 @@ import { useDraftRecovery } from "../useDraftRecovery";
 import { RecoveryNotice } from "../RecoveryNotice";
 import { studioKey } from "@shared/channelKeys";
 import { Icon } from "../icons";
+import { SnsWritingWorkbench } from "../SnsWritingWorkbench";
 
 const inputOf = (card: StudioCard) => ({ title: card.title, caption: card.caption, experience: card.experience ?? emptyExperience(), videoProject: card.videoProject ?? emptyVideoProject() });
 type Form = ReturnType<typeof inputOf>;
@@ -91,6 +92,7 @@ export function VideoEditor({ data }: { data: StudioCardDetail }) {
     {newer && dirty && <div className="notice warn" role="status">다른 기기의 새 저장본이 있습니다. 현재 입력은 보존했습니다. 저장 충돌을 확인한 뒤 최신 내용을 선택해 주세요.</div>}
     {!!(save.error || restore.error || uploadError || downloadError) && <ErrorBox error={save.error || restore.error || uploadError || downloadError}/>}
     <div className="video-capability"><Icon name="video" size={18}/><div><strong>장면·대본·자막은 스튜디오에서, 영상 편집은 외부 도구에서</strong><p>자료 업로드, 순서·길이 구성, SRT 자막 저장과 완성 파일 보관을 지원합니다. 영상 합성·인코딩과 SNS 영상 전송은 외부 편집·게시 도구에서 진행해 주세요.</p></div></div>
+    <SnsWritingWorkbench channelName={channel?.name ?? base.channel} recoveryKey={`studio:${base.id}:video`} revision={base.version} generationTarget={{ id: base.id, version: base.version }} onApply={{ title: text => setForm(current => ({ ...current,title:text })), caption: text => setForm(current => ({ ...current,caption:text })) }} disabled={busy || newer || !!recovery.pending} content={{ title: form.title, channel: base.channel, format: "릴스", caption: form.caption, script: project.scenes.map((value,index) => `${index + 1}장면 · ${value.duration}초\n대본: ${value.narration}\n자막: ${value.subtitle}`).join("\n\n"), panels: [], sourceLabel: base.sourceLabel, memo: base.memo }} />
     <fieldset className="video-edit-fields" disabled={busy || !!recovery.pending}>
       <div className="video-project-header"><label className="field">작업 제목<input value={form.title} maxLength={160} onChange={e => setForm({ ...form,title:e.target.value })}/></label><label className="field">화면 비율<select value={project.ratio} onChange={e => update({ ratio:e.target.value as VideoProject["ratio"] })}>{["9:16","16:9","1:1"].map(ratio => <option key={ratio}>{ratio}</option>)}</select></label><div className="video-length"><span>계획한 길이</span><strong>{total.toFixed(1)}<small>초</small></strong></div></div>
       <div className="video-production-layout">

@@ -90,6 +90,7 @@ function fixture() {
     else if (pathname === "/api/studio/ai-status") data = ai;
     else if (pathname === "/api/canva/status") data = { connected: false };
     else if (pathname === "/api/studio/cards/25") data = studio();
+    else if (pathname === "/api/studio/cards/25/canva-sync" && method === "GET") data = { binding: null, phase: "idle", cardVersion: studio().card.version, message: "Isolated fixture: no Canva design connected." };
     else if (pathname === "/api/studio/cards") data = { cards: [studio().card], ai, notes: "", notesVersion: 1 };
     else if (pathname === "/api/items") {
       const page = Number(url.searchParams.get("page") || 1), source = detail().primary;

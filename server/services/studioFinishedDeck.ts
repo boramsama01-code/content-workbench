@@ -23,7 +23,7 @@ export async function appendFinishedImage(db: DB, id: number, version: number, n
       return studioCardDto(card);
     }
     if (card.version !== version) conflict(studioCardDto(card));
-    if (content.finishedDeck.pages.length >= 10) throw new HttpError(400, "한 게시물에는 이미지를 최대 10장까지 넣을 수 있습니다.");
+    if (content.finishedDeck.pages.length >= 20) throw new HttpError(400, "완성 이미지 작업에는 최대 20장까지 넣을 수 있습니다. 실제 게시 가능 장수는 게시 경로에서 따로 확인합니다.");
     await invalidateStudioPublication(tx as unknown as DB, card);
     const [image] = await tx.insert(studioImages).values({ cardId: id, panelIndex: content.finishedDeck.pages.length, bytes: png, mimeType: "image/png", model: "finished-image-import" }).returning({ id: studioImages.id });
     content.finishedDeck.pages.push({ imageId: image.id, name, altText: "", uploadId });

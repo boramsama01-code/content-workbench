@@ -49,6 +49,7 @@ for(const width of widths){
    else if(p==='/api/channels/1/today')json={counts:{pendingReview:0}};
    else if(p==='/api/status')json={globalStop:false,workerConnected:true,integrations:{flags:{dryRun:true,autoPublish:false}}};
    else if(p==='/api/studio/cards')json={cards:[detail.card],notes:'',notesVersion:1,ai:{defaultProvider:'openai',text:{openai:true,gemini:false,anthropic:false},image:true}};
+   else if(p==='/api/studio/cards/8/canva-sync'&&method==='GET')json={binding:null,phase:'idle',cardVersion:detail.card.version,message:'Isolated fixture: no Canva design connected.'};
    else if(p==='/api/studio/cards/8'){
      if(method==='PATCH'){assert.equal(body.version,detail.card.version);detail.card={...detail.card,...clone(body),version:detail.card.version+1};json=detail.card;}
      else json=detail;

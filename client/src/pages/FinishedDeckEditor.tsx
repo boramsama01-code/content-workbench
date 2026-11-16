@@ -14,13 +14,14 @@ import { FinishedDeckAi } from "./FinishedDeckAi";
 import { AltTextInput } from "../AltTextEditor";
 import { useDraftRecovery } from "../useDraftRecovery";
 import { RecoveryNotice } from "../RecoveryNotice";
+import { SnsWritingWorkbench } from "../SnsWritingWorkbench";
 import "../studioPublish.css";
 
 // A checkpoint contains editable text and references to already saved images,
 // never File/Blob/base64 data or server identity/authentication fields.
 const recoveryDeckSchema = z.object({
   title: z.string(), caption: z.string(), subcategory: z.string(), stage: z.enum(studioStages),
-  finishedDeck: z.object({ pages: z.array(z.object({ imageId: z.number().int().positive(), name: z.string(), altText: z.string(), uploadId: z.string().uuid().optional() }).strict()).max(10)
+  finishedDeck: z.object({ pages: z.array(z.object({ imageId: z.number().int().positive(), name: z.string(), altText: z.string(), uploadId: z.string().uuid().optional() }).strict()).max(20)
     .refine(pages => new Set(pages.map(page => page.imageId)).size === pages.length) }).strict(),
 }).strict();
 type DeckDraft = z.infer<typeof recoveryDeckSchema>;
@@ -94,7 +95,7 @@ export function FinishedDeckEditor({ data }: { data: StudioCardDetail }) {
   }
   const saving = useMutation({ mutationFn: save });
   const uploading = useMutation({ mutationFn: async (files: File[]) => {
-    if (files.length + formRef.current.finishedDeck.pages.length > 10) throw new Error("한 게시물에는 최대 10장까지 넣을 수 있습니다.");
+    if (files.length + formRef.current.finishedDeck.pages.length > 20) throw new Error("한 작업에는 최대 20장까지 넣을 수 있습니다.");
     for (const f of files) { const error = studioImageFileError(f); if (error) throw new Error(`${f.name}: ${error}`); }
     let card = await save();
     const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, "ko", { numeric: true }));
@@ -125,8 +126,9 @@ export function FinishedDeckEditor({ data }: { data: StudioCardDetail }) {
   }, [dirty, recovery.pending, savePending, uploading.isPending, aiBusy, publicationBusy, form, base, guard]);
   const move = (index: number, direction: number) => { const next = [...formRef.current.finishedDeck.pages], to = index + direction; if (to < 0 || to >= next.length) return; [next[index], next[to]] = [next[to], next[index]]; update(f => ({ ...f, finishedDeck: { pages: next } })); };
   return <div className="finished-deck-editor stack">
-    <div className="page-head"><div><GuardedLink href="/">← 제작보드</GuardedLink><h1>완성 이미지로 게시물 만들기</h1><p className="small muted">한 작업이 게시물 한 건입니다. 표지부터 마지막 장까지 파일 이름 순서로 가져옵니다.</p></div><span className="badge">{pages.length} / 10장</span></div>
+    <div className="page-head"><div><GuardedLink href="/">← 제작보드</GuardedLink><h1>완성 이미지로 게시물 만들기</h1><p className="small muted">한 작업이 게시물 한 건입니다. 표지부터 마지막 장까지 파일 이름 순서로 가져옵니다.</p></div><span className="badge">{pages.length} / 20장</span></div>
     <RecoveryNotice recovery={recovery} formatValue={deckText} />
+    <SnsWritingWorkbench channelName={base.channel} recoveryKey={`studio:${base.id}:finished`} revision={base.version} generationTarget={{id:base.id,version:base.version}} disabled={busy || !!conflicting} content={{title:form.title,channel:base.channel,format:base.format,script:base.script,caption:form.caption,sourceLabel:base.sourceLabel,memo:base.memo,panels:[]}} onApply={{title:text=>update(current=>({...current,title:text})),caption:text=>update(current=>({...current,caption:text}))}}/>
     {conflicting && <section className="notice warn stack" aria-label="완성 이미지 저장 충돌">
       <strong>다른 곳에서 저장한 내용이 있습니다. 현재 입력은 유지했습니다.</strong>
       <details><summary>최신 저장본과 현재 입력 비교</summary><div className="draft-recovery-compare"><div><h4>최신 저장본 · v{conflicting.version}</h4><pre>{deckText(inputOf(conflicting))}</pre></div><div><h4>현재 입력</h4><pre>{deckText(form)}</pre></div></div></details>
@@ -137,7 +139,7 @@ export function FinishedDeckEditor({ data }: { data: StudioCardDetail }) {
       <label className="field">게시물 제목<input value={form.title} maxLength={160} disabled={busy} onChange={e => update(f => ({ ...f, title: e.target.value }))} /></label>
       <div className="finished-drop" onDragOver={e => { e.preventDefault(); }} onDrop={e => { e.preventDefault(); if (!busy) uploading.mutate(Array.from(e.dataTransfer.files)); }}>
         <strong>완성 이미지 여러 장 가져오기</strong><p>PNG · JPG · WEBP / 한 장 12MB 이하</p><p className="small">5장·7장 묶음을 그대로 올리세요. 마무리 이미지는 추가한 뒤 맨 끝으로 옮기면 됩니다.</p>
-        <button className="btn primary" disabled={busy || !!conflicting || pages.length >= 10} onClick={() => file.current?.click()}>이미지 선택</button>
+        <button className="btn primary" disabled={busy || !!conflicting || pages.length >= 20} onClick={() => file.current?.click()}>이미지 선택</button>
         <input ref={file} className="sr-only" aria-label="완성 이미지 파일" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={busy} onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ""; if (files.length) uploading.mutate(files); }} />
       </div>
       {progress && <p role="status">{progress}</p>}{uploading.error && <><ErrorBox error={uploading.error} /><p className="small">이미 저장한 장은 남아 있습니다. 목록을 확인하고 빠진 파일만 추가하세요.</p></>}

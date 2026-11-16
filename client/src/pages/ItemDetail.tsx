@@ -1,4 +1,5 @@
 import { CanvaEditorial } from "../CanvaEditorial";
+import { CanvaStudioSync } from "../CanvaStudioSync";
 import { editorialPlanSchema, familyCardCopySchema, pageDesignsSchema } from "@shared/familyDialogue";
 import { CategorySelect } from "../CategorySelect";
 import { CardCarousel } from "../CardCarousel";
@@ -174,6 +175,7 @@ export function ItemDetailPage({ cid: requestedCid, id, fromStudio = false }: { 
         </div>
       </div>
       {q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}
+      {!fromStudio && d.canonicalStudioCardId && <CanvaStudioSync key={`canva-sync-${d.canonicalStudioCardId}`} cardId={d.canonicalStudioCardId}/>}
       <WorkModeControl mode={workMode} onChange={setWorkMode} />
       <nav className="content-workspace-nav" aria-label="현재 콘텐츠 작업">
         <button className="btn sm" onClick={() => go("publish", "card-panel")} disabled={!d.current}>카드 편집</button>
@@ -691,6 +693,7 @@ const coverRedrawText = (draft: CoverRedrawDraft) => `${draft.regenerateCover ? 
 
 function CardApprovePanel({ d, cid, sourceDirty = false, templateChoice, onTemplateChange, onApproved, runtime, workMode = "auto", imageGeneration }: { d: Detail; cid: number; sourceDirty?: boolean; templateChoice?: string | null; onTemplateChange?: (key: string) => void; onApproved: () => void; runtime?: PublicationRuntime; workMode?: WorkMode; imageGeneration: ReturnType<typeof useGenerationRequest> }) {
   const qc = useQueryClient();
+  const writingChannel = qc.getQueryData<Channel[]>(["channels"])?.find(channel => channel.id === cid);
   const guard = useDirtyGuard();
   const toast = useToast();
   const copyIncomplete = incompleteCardCopy(d);
@@ -920,7 +923,7 @@ function CardApprovePanel({ d, cid, sourceDirty = false, templateChoice, onTempl
             <TemplatePicker cid={cid} brandName={ch?.name} value={templateKey} onChange={chooseTemplate} items={tpls.data.items} version={ch?.accentColor} disabled={render.isPending} />
           )}
           {sourceDirty && <p className="notice warn small" role="status">자료·초안에 저장하지 않은 변경이 있습니다. 먼저 저장한 뒤 이미지를 갱신하고 게시 준비를 완료해 주세요.</p>}
-          <CardCopyEditor key={`${cid}-${d.item.id}`} channelId={cid} itemId={d.item.id} itemVersion={d.item.version} templateKey={templateKey} onTemplateChange={chooseTemplate} coverMode={coverMode} previewRevision={`${currentCard?.id ?? ""}:${render.data && !olderRender(render.data) ? render.data.id : ""}`} showAi={workMode === "auto"} disabled={render.isPending || altDirty} renderDisabled={sourceDirty || imageGeneration.unresolved || !familyCopy.success && (!!coverRecovery.pending || workMode === "auto" && coverDraft.regenerateCover && (typographyOnly || !d.imageAiAvailable))} onDirtyChange={setCopyDirty} onApplyCaption={text => captionDraft.setCaptions({ ...caps, instagram: text })} onEditCaption={openManualCaption} onSaveAndRender={saved => render.mutateAsync(saved)} renderLabel={workMode === "auto" ? coverDraft.regenerateCover ? "표지 1장 다시 그리기 · 이미지 갱신" : "이미지 생성·갱신" : "카드 이미지 저장"} />
+          <CardCopyEditor key={`${cid}-${d.item.id}`} channelId={cid} itemId={d.item.id} itemVersion={d.item.version} templateKey={templateKey} onTemplateChange={chooseTemplate} coverMode={coverMode} previewRevision={`${currentCard?.id ?? ""}:${render.data && !olderRender(render.data) ? render.data.id : ""}`} showAi={workMode === "auto"} disabled={render.isPending || altDirty} renderDisabled={sourceDirty || imageGeneration.unresolved || !familyCopy.success && (!!coverRecovery.pending || workMode === "auto" && coverDraft.regenerateCover && (typographyOnly || !d.imageAiAvailable))} onDirtyChange={setCopyDirty} onApplyCaption={text => captionDraft.setCaptions({ ...caps, instagram: text })} onEditCaption={openManualCaption} onSaveAndRender={saved => render.mutateAsync(saved)} writingContext={{ channel: studioKey(writingChannel?.slug ?? "news"), channelName: writingChannel?.name ?? "선택한 채널", caption: caps.instagram, sourceLabel: d.primary ? `${d.primary.title}\n${d.primary.originalUrl}` : "", memo: d.primary?.fetchedText ?? "", studioCardId: d.canonicalStudioCardId ?? undefined }} renderLabel={workMode === "auto" ? coverDraft.regenerateCover ? "표지 1장 다시 그리기 · 이미지 갱신" : "이미지 생성·갱신" : "카드 이미지 저장"} />
           {familyCopy.success && d.current && <CanvaEditorial key={`canva-${cid}-${d.item.id}`} channelId={cid} itemId={d.item.id} version={d.item.version} revisionId={d.current.id} copy={familyCopy.data} pageDesigns={savedPageDesigns.success ? savedPageDesigns.data : undefined} disabled={sourceDirty || copyDirty || altDirty || render.isPending || localRender.isPending || confirmManualCaption.isPending || imageGeneration.unresolved} onLocalRender={() => localRender.mutate()} />}
           {localRender.error && <ErrorBox error={localRender.error} />}
           {render.isPending && <p className="notice small" role="status">{renderedIntent.current?.redraw ? "새 표지 그림 1장을 요청하고 있습니다. OpenAI 이미지 API 비용이 발생하며, 완료한 그림으로 카드 이미지를 갱신합니다." : renderedIntent.current?.coverMode === "ai" ? "표지 일러스트와 각 페이지를 만들고 있어요. 몇 분 정도 걸릴 수 있습니다." : "원고를 페이지로 나누고 보드에 저장하고 있어요."}</p>}

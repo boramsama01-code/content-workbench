@@ -1,4 +1,5 @@
 import { CAPTION_EMOJI_GUIDE } from "../../shared/captionStyle";
+import { snsWritingPrompt } from "../../shared/snsEditorial";
 
 /** Editorial instructions for secondary-school students and parents. User update: 2026-11-04. */
 export const FAMILY_EDITORIAL_PROMPTS = {
@@ -14,4 +15,10 @@ export const FAMILY_EDITORIAL_PROMPTS = {
   "partial": "선택한 문구만 수정 제안하라. 전체 콘텐츠를 다시 쓰지 마라.\n\n[입력]\n기준 원고 버전: {{baseRevision}}\n고정 근거 연결: {{evidenceBinding}}\n대상 pageId: {{pageId}}\n수정 허용 필드 경로: {{allowedFieldPaths}}\n대상 필드 해시: {{targetFieldHash}}\n현재 전체 카드와 캡션: {{currentContent}}\n원문과 근거: {{articleAndEvidence}}\n중심 질문·문체: {{editorialPlanAndVoice}}\n사용자 수정 지시: {{editInstruction}}\n잠금 필드: {{lockedFields}}\n\n[규칙]\n허용된 필드 경로만 변경한다.\n다른 페이지, 중심 질문, 기존 이미지, 캡션은 요청 범위 밖이면 유지한다.\n잠긴 필드는 변경하지 않는다.\n원문의 주체·조건·발언·전망 성격을 유지한다.\n수정 때문에 관련 페이지나 캡션이 어긋나면 직접 바꾸지 말고 영향만 보고한다.\n길이 제한과 해당 페이지의 역할을 지킨다.\n새 사실·근거·자산 ID를 만들지 않는다.\n수정한 필드에는 새 문구에 맞는 claimRefs를 함께 반환한다.\nclaimRefs는 그 필드에 적용할 전체 대체 목록이며, 다른 필드의 연결은 변경하지 않는다.\n단순 질문·가정으로 바뀌면 불필요한 사실 연결을 제거할 수 있다.\n필요한 근거는 입력의 evidenceBinding에 고정된 묶음에서만 참조한다.\n\n[출력]\nStageResult JSON.\ndata:\nbaseRevision, evidenceBinding, pageId, targetFieldHash,\npatches: [{ fieldPath, replacement, claimRefs, briefReason }],\naffectedDependents.\n\nfieldPath는 입력의 허용 목록 중 하나여야 한다.\nclaimRefs는 7절의 형식을 사용하고 해당 수정 필드 또는 허용된 하위 경로만 가리킨다.\n문구와 해당 근거 연결은 동일 revision에서 함께 적용되어야 한다.\n이 출력은 제안이며 저장·적용 여부는 앱이 버전과 잠금 상태를 확인해 결정한다."
 } as const;
 
-export const FAMILY_PROMPT_VERSION = "allligodang-secondary-v1.2-20261104";
+export const FAMILY_PROMPT_VERSION = "allligodang-secondary-v1.3-editorial-voice-20261116";
+
+/** Apply the shared editorial voice only to writing/review, never fact extraction or image instructions. */
+export function familyWritingPrompt(stage: "plan" | "copy" | "caption" | "partial" | "review", channel?: string): string {
+  const scope = stage === "caption" ? "caption" : stage === "partial" ? "partial" : stage === "review" ? "review" : "draft";
+  return `${FAMILY_EDITORIAL_PROMPTS[stage]}\n\n${snsWritingPrompt({ channel, format: "8장 가족 대화 카드뉴스", scope })}`;
+}

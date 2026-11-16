@@ -91,6 +91,20 @@ function promptFixture(): CardImagePromptView {
 }
 
 describe("card copy editor", () => {
+  it("shares the latest unsaved card text with the writing desk without saving or exposing private source notes", async () => {
+    await render(createElement(CardCopyEditor, { channelId: 1, itemId: 9, writingContext: { channel: "highscoop", channelName: "HighScoop", caption: "현재 게시 캡션", sourceLabel: "공식 자료", memo: "기획 비공개 9144", studioCardId: 18 } }));
+    await input("title", "직접 다듬은 표지 제목");
+    const desk = host.querySelector<HTMLElement>(".sns-writing-workbench")!;
+    const show = [...desk.querySelectorAll("button")].find(node => node.textContent === "프롬프트 보기")!;
+    await act(async () => show.click());
+    const prompt = desk.querySelector<HTMLTextAreaElement>("textarea[readonly]")!.value;
+    expect(prompt).toContain("직접 다듬은 표지 제목");
+    expect(prompt).toContain("현재 게시 캡션");
+    expect(prompt).not.toContain("기획 비공개 9144");
+    expect(saved.copy.cover.title).toBe(fresh().copy.cover.title);
+    expect(mocks.api.mock.calls.some(([, options]) => options?.method === "POST" || options?.method === "PATCH")).toBe(false);
+    expect(mocks.api.mock.calls.some(([url]) => url === "/studio/cards/18")).toBe(false);
+  });
   it("opens and saves editable image prompts before approval, reopens them, and sends the edited prompt only on generate", async () => {
     saved.copy.templateKey = "builtin:classic";
     let prompt: CardImagePromptView = { itemVersion: 3, revisionId: 30, pageId: "cover", promptVersion: 0,
