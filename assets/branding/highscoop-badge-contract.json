@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "brand": "HighScoop",
+  "shape": "capsule",
+  "cornerRadiusRatio": 0.5,
+  "pptxAdjustment": 50000,
+  "svgTemplate": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{{width}}\" height=\"{{height}}\" viewBox=\"0 0 {{width}} {{height}}\" data-highscoop-badge=\"capsule\"><rect width=\"{{width}}\" height=\"{{height}}\" rx=\"{{radius}}\" ry=\"{{radius}}\" fill=\"{{color}}\"/></svg>"
+}

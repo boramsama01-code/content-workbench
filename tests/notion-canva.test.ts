@@ -7,6 +7,7 @@ import jsQR from 'jsqr';
 import type { DB } from '../server/db';
 import { loadReadingFont } from '../server/services/readingCardFonts';
 import {highScoopClosingAccent} from '../shared/highscoopClosing';
+import {editorialBrandForChannel} from '../shared/editorialTemplates';
 import { buildNotionCanvaPptx, decodeNotionCanvaPngExport, downloadNotionCanvaExport, getNotionCanvaExportJob, getNotionCanvaImportJob, getNotionCanvaPages, NOTION_CANVA_OUTRO, NOTION_CANVA_SOURCE_TITLE, NOTION_CANVA_TEASER_COMMENT, NOTION_CANVA_TEXT_SYNC, submitNotionCanvaExport, submitNotionCanvaImport, type NotionCanvaDocument } from '../server/services/notionCanva';
 
 const db={} as DB;
@@ -68,7 +69,7 @@ describe('native editable Notion manuscript PPTX',()=>{
     const {data,info}=await sharp(Buffer.from(result.previewSvg!)).removeAlpha().raw().toBuffer({resolveWithObject:true});expect(info).toMatchObject({width:1080,height:1350});
     const pixel=(x:number,y:number)=>[...data.subarray((y*info.width+x)*info.channels,(y*info.width+x)*info.channels+3)];expect(pixel(50,100)).toEqual([114,167,255]);expect(pixel(50,1200)).toEqual([0,0,0]);
   });
-  it('keeps the approved filled cover badges readable, editable and inside the cover frame in native and preview output',async()=>{
+  it('keeps full-capsule cover badges readable, editable and inside the cover frame in native and preview output',async()=>{
     smallPhoto??=await sharp({create:{width:600,height:400,channels:3,background:'#72A7FF'}}).png().toBuffer();
     const photo={id:'cover-photo',bytes:smallPhoto,mimeType:'image/png'};
     const cases=[
@@ -85,7 +86,9 @@ describe('native editable Notion manuscript PPTX',()=>{
       const files=unzipSync(built.bytes),cover=strFromU8(files['ppt/slides/slide1.xml']);
       const badge=nativeShape(cover,'cover-category-badge'),label=nativeShape(cover,'cover-category'),title=nativeShape(cover,'cover-title');
       expect(nativePlain(label.xml)).toBe(value.label);expect(label.xml.match(/<a:p>/g)).toHaveLength(1);
-      expect(badge.xml).toContain('prst="roundRect"');expect(badge.xml).toContain(`fmla="val ${value.style==='A'?16667:16000}"`);
+      // Full semicircular ends are the brand requirement. The former 10/8px
+      // radii and 16667/16000 adjustments incorrectly protected a rounded box.
+      expect(badge.xml).toContain('prst="roundRect"');expect(badge.xml).toContain('fmla="val 50000"');
       expect(badge.xml).toContain(`val="${value.fill.slice(1)}"`);expect(label.xml).toContain('val="181818"');expect(label.xml).toContain('algn="ctr"');expect(label.xml).toContain('b="1"');
       const fontSize=Number(label.xml.match(/<a:rPr[^>]*sz="(\d+)"/)![1])/75;expect(fontSize).toBeGreaterThanOrEqual(24);expect(fontSize).toBeLessThanOrEqual(value.style==='A'?36:30);if(value.label.length<=4)expect(fontSize).toBe(value.style==='A'?36:30);
       expect(badge.x).toBe(96);expect(badge.y).toBe(value.style==='A'?(value.footer?560:640):775);expect(badge.h).toBe(value.style==='A'?60:50);
@@ -93,7 +96,15 @@ describe('native editable Notion manuscript PPTX',()=>{
       expect(badge.y).toBeGreaterThanOrEqual(207);expect(title.y-(badge.y+badge.h)).toBe(value.style==='A'?30:20);
       expect(label.x+label.w/2).toBeCloseTo(badge.x+badge.w/2,3);expect(label.y+label.h/2).toBeCloseTo(badge.y+badge.h/2,3);
       const svgBadge=built.previewSvg!.match(/data-name="cover-category-badge"><rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="([\d.]+)" fill="(#[0-9A-F]+)"/)!;
-      expect(svgBadge).toBeTruthy();expect(svgBadge.slice(1,5).map(Number)).toEqual([badge.x,badge.y,badge.w,badge.h]);expect(Number(svgBadge[5])).toBe(value.style==='A'?10:8);expect(svgBadge[6]).toBe(value.fill);
+      expect(svgBadge).toBeTruthy();expect(svgBadge.slice(1,5).map(Number)).toEqual([badge.x,badge.y,badge.w,badge.h]);expect(Number(svgBadge[5])*2).toBe(badge.h);expect(svgBadge[6]).toBe(value.fill);
+      const {data,info}=await sharp(Buffer.from(built.previewSvg!)).removeAlpha().raw().toBuffer({resolveWithObject:true});
+      const pixel=(x:number,y:number)=>[...data.subarray((Math.round(y)*info.width+Math.round(x))*info.channels,(Math.round(y)*info.width+Math.round(x))*info.channels+3)];
+      const badgeColor=[1,3,5].map(offset=>parseInt(value.fill.slice(offset,offset+2),16));
+      // A 10%/10% corner must remain outside the capsule; the old small radius
+      // filled this pixel. Top centre and left midpoint must still be filled.
+      expect(pixel(badge.x+badge.h*.1,badge.y+badge.h*.1)).not.toEqual(badgeColor);
+      expect(pixel(badge.x+badge.w/2,badge.y+2)).toEqual(badgeColor);
+      expect(pixel(badge.x+2,badge.y+badge.h/2)).toEqual(badgeColor);
       if(value.label==='영재교육'){
         // Canva's exact import alias must not change canonical Korean measurements or preview outlines.
         for(const part of [cover,strFromU8(files['ppt/theme/theme1.xml'])]){
@@ -111,6 +122,30 @@ describe('native editable Notion manuscript PPTX',()=>{
     }
     const untagged=document(2,'A');delete untagged.category;untagged.pages[0].imageId=photo.id;
     expect(strFromU8(unzipSync((await buildNotionCanvaPptx(untagged,[photo])).bytes)['ppt/slides/slide1.xml'])).not.toContain('cover-category');
+  });
+  it('scopes capsule cover badges to HighScoop and the no-brand default, preserving explicit other brands',async()=>{
+    smallPhoto??=await sharp({create:{width:600,height:400,channels:3,background:'#72A7FF'}}).png().toBuffer();
+    const photo={id:'brand-scope-photo',bytes:smallPhoto,mimeType:'image/png'};
+    const brands=[
+      {brand:undefined,capsule:true},
+      {brand:editorialBrandForChannel({slug:'opportunities',name:'HighScoop'}),capsule:true},
+      {brand:editorialBrandForChannel({slug:'fryday',name:'Fryday'}),capsule:false},
+      {brand:editorialBrandForChannel({slug:'my-custom-brand',name:'My custom brand'}),capsule:false},
+    ];
+    for(const style of ['A','C'] as const)for(const value of brands){
+      const input=document(2,style);input.pages[0].imageId=photo.id;
+      const built=await buildNotionCanvaPptx(input,[photo],{brand:value.brand,previewPage:0,includeOutro:false});
+      const cover=strFromU8(unzipSync(built.bytes)['ppt/slides/slide1.xml']);
+      const badge=nativeShape(cover,'cover-category-badge'),label=nativeShape(cover,'cover-category');
+      const radius=value.capsule?badge.h/2:style==='A'?10:8;
+      expect(badge.xml).toContain(`fmla="val ${value.capsule?50000:style==='A'?16667:16000}"`);
+      const svgBadge=built.previewSvg!.match(/data-name="cover-category-badge"><rect[^>]* rx="([\d.]+)"/)!;
+      expect(Number(svgBadge[1])).toBe(radius);
+      expect(nativePlain(label.xml)).toBe(input.category);
+      expect(badge.x).toBe(96);expect(badge.h).toBe(style==='A'?60:50);
+      expect(label.x+label.w/2).toBeCloseTo(badge.x+badge.w/2,3);
+      expect(label.y+label.h/2).toBeCloseTo(badge.y+badge.h/2,3);
+    }
   });
   it('renders the last grouped source QR as a scannable local preview with its real label and URL',async()=>{
     const input=document(2);input.sourceReferences=Array.from({length:9},(_,i)=>({title:`기관 ${i+1}`,url:`https://ged.kedi.re.kr/notice/${i+1}`}));
