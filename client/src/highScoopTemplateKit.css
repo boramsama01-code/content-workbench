@@ -11,7 +11,7 @@
 .highscoop-kit-preview { position: relative; width: 100%; aspect-ratio: 4/5; overflow: hidden; border-radius: 4px; background: var(--kit-soft); }
 .highscoop-kit-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .highscoop-kit-preview-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: end; gap: 8px; padding: 12px; background: linear-gradient(0deg,#101318 12%,transparent 95%),var(--kit-color); color: white; }
-.highscoop-kit-preview-fallback span { font-size: 10px; align-self: start; color: var(--kit-accent); background: var(--kit-color); border-radius: 12px; padding: 3px 8px; }
+.highscoop-kit-preview-fallback span { font-size: 10px; align-self: start; color: var(--kit-accent); background: var(--kit-color); border-radius: 999px; padding: 3px 8px; }
 .highscoop-kit-preview-fallback b { font-size: 15px; }
 .highscoop-kit-preview-fallback i { height: 4px; background: #ffffffbf; width: 85%; }
 .highscoop-kit-preview-fallback i:last-child { width: 60%; }

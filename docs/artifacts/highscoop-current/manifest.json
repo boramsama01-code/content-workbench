@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-16",
+  "version": "2026-11-17",
   "kitCount": 6,
   "categoryMastersOnly": true,
   "renderer": "buildNotionCanvaPptx",
@@ -25,7 +25,7 @@
       "pptx": "docs/artifacts/highscoop-current/gifted.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "64fa31907834000a87daa6c1158ac3fb4fa070d5eea2555d61141426caea80a9",
+      "sha256": "723d2b53498a879e2229b30710553a7268c7652fc20e9d0e640568f846d75102",
       "previewFiles": [
         "client/public/highscoop/current/gifted-page-1.webp",
         "client/public/highscoop/current/gifted-page-2.webp",
@@ -39,9 +39,7 @@
         "client/public/highscoop/current/gifted-page-10.webp",
         "client/public/highscoop/current/gifted-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     },
     {
       "key": "highscoop:experience",
@@ -50,7 +48,7 @@
       "pptx": "docs/artifacts/highscoop-current/experience.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "93000c4b07f28d5d3e956113ccbcf81116fa722c8cebb3ebc0044d60e76e0391",
+      "sha256": "c87d51915fe6fcde7263072e6888e891fd7aff10ce450dd5f559a089612c9ea3",
       "previewFiles": [
         "client/public/highscoop/current/experience-page-1.webp",
         "client/public/highscoop/current/experience-page-2.webp",
@@ -64,9 +62,7 @@
         "client/public/highscoop/current/experience-page-10.webp",
         "client/public/highscoop/current/experience-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     },
     {
       "key": "highscoop:competition",
@@ -75,7 +71,7 @@
       "pptx": "docs/artifacts/highscoop-current/competition.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "0feae6769faa491fd1afb1ffc18cd07117dd651efa7081b3b1cbcb34f27840ce",
+      "sha256": "968a570838956d4257c7acefe45e7baa20044060ad57fd01c13c6f292326b938",
       "previewFiles": [
         "client/public/highscoop/current/competition-page-1.webp",
         "client/public/highscoop/current/competition-page-2.webp",
@@ -89,9 +85,7 @@
         "client/public/highscoop/current/competition-page-10.webp",
         "client/public/highscoop/current/competition-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     },
     {
       "key": "highscoop:admissions",
@@ -100,7 +94,7 @@
       "pptx": "docs/artifacts/highscoop-current/admissions.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "475f09250ecdf1f8863a1b051e031b9f369eb8b5c01dcddb4e30c7986dabf0de",
+      "sha256": "39592593d23658e28220966cbb388a6302ea68bb9fe449aaca9c9e30b4ae2c3d",
       "previewFiles": [
         "client/public/highscoop/current/admissions-page-1.webp",
         "client/public/highscoop/current/admissions-page-2.webp",
@@ -114,9 +108,7 @@
         "client/public/highscoop/current/admissions-page-10.webp",
         "client/public/highscoop/current/admissions-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     },
     {
       "key": "highscoop:conversation",
@@ -125,7 +117,7 @@
       "pptx": "docs/artifacts/highscoop-current/conversation.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "4d49b3d099a0ba8581fa69efd10cdc31adee3bb1cec8c61321aa575e7c403908",
+      "sha256": "1d5ad063e04843d31d1138605923ae65f02d5325a5a4138a4e2b712314b7777e",
       "previewFiles": [
         "client/public/highscoop/current/conversation-page-1.webp",
         "client/public/highscoop/current/conversation-page-2.webp",
@@ -139,9 +131,7 @@
         "client/public/highscoop/current/conversation-page-10.webp",
         "client/public/highscoop/current/conversation-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     },
     {
       "key": "highscoop:news",
@@ -150,7 +140,7 @@
       "pptx": "docs/artifacts/highscoop-current/news.pptx",
       "pageCount": 11,
       "sourcePageCount": 10,
-      "sha256": "ddd3ba5cfd380208d1a2e9a2633ebb1353d4226de1d8f514bebf6c4099bad4d4",
+      "sha256": "20ae4ce940b35d60d53569241c14275eae6b1dfbbfa011435671172188e6a0b1",
       "previewFiles": [
         "client/public/highscoop/current/news-page-1.webp",
         "client/public/highscoop/current/news-page-2.webp",
@@ -164,16 +154,7 @@
         "client/public/highscoop/current/news-page-10.webp",
         "client/public/highscoop/current/news-page-11.webp"
       ],
-      "warnings": [],
-      "closingVersion": "highscoop-closing-2026-11-16",
-      "preservedOriginalPages": 10
+      "warnings": []
     }
-  ],
-  "closingVersion": "highscoop-closing-2026-11-16",
-  "closingReference": {
-    "kind": "operator-supplied-closing",
-    "layoutCanvaDesignId": "DAHakNtBLjU",
-    "layoutPageNumber": 9,
-    "emojiArtwork": "operator-supplied-closing-reference"
-  }
+  ]
 }

@@ -6,6 +6,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {DesignPage} from '../client/src/pages/Design';
 import {HighScoopTemplateKit} from '../client/src/HighScoopTemplateKit';
 import {HIGH_SCOOP_TEMPLATE_KITS} from '../shared/highscoopTemplates';
+import {EDITORIAL_TEMPLATE_VERSION} from '../shared/editorialTemplates';
 import {editorialTemplateCatalogOptions} from '../shared/templateCatalog';
 import {CreativeProfileFields} from '../client/src/CreativeProfileFields';
 import {creativeProfileFor} from '../shared/creativeProfile';
@@ -64,7 +65,7 @@ describe('HighScoop current category masters',()=>{
   expect(host.textContent).not.toContain('기존 등록 디자인 목록');expect(host.textContent).not.toContain('기존 8장 Canva 라이브러리');
   expect(host.textContent).not.toContain('내 배경 템플릿');expect(host.querySelector('input[type="file"]')).toBeNull();
   expect([...host.querySelectorAll('.highscoop-kit-category')].map(node=>node.textContent)).toEqual(['뉴스']);
-  expect(host.querySelector('img')?.getAttribute('src')).toContain('/api/channels/5/templates/preview?');expect(host.querySelector('img')?.getAttribute('src')).toContain('&kit=2026-11-16-news');expect(writes()).toHaveLength(0);
+  expect(host.querySelector('img')?.getAttribute('src')).toContain('/api/channels/5/templates/preview?');expect(host.querySelector('img')?.getAttribute('src')).toContain(`&kit=${EDITORIAL_TEMPLATE_VERSION}`);expect(writes()).toHaveLength(0);
  });
 
  it('shows the cyan News choice for an old current Alligodang color without writing',async()=>{

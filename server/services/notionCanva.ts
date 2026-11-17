@@ -27,6 +27,7 @@ import { loadEducationOfficeLogos, type EducationOfficeLogo } from './educationO
 import {notionInteriorTemplates} from '../../shared/notionPageTemplates';
 import {interiorTemplateElements} from './notionInteriorTemplates';
 import {HIGH_SCOOP_TEMPLATE_KITS,highScoopTemplateForCategory} from '../../shared/highscoopTemplates';
+import {highScoopBadgeGeometry} from '../../shared/highscoopBadge';
 import type {EditorialBrand} from '../../shared/editorialTemplates';
 import {HIGHSCOOP_CLOSING_COPY,HIGHSCOOP_CLOSING_LAYOUT,highScoopClosingAccent,isHighScoopClosingBrand} from '../../shared/highscoopClosing';
 
@@ -497,13 +498,15 @@ export async function buildNotionCanvaPptx(value:NotionCanvaDocument, photos:Not
       }
     };
     const body=[page.body,...(page.bullets??[]).map(b=>`• ${b}`)].filter(Boolean).join('\n\n');
-    // Approved cover labels are filled rounded badges above the headline,
-    // with separate native text so they remain editable after Canva import.
+    // HighScoop labels use its full-capsule contract, including the historical
+    // no-brand default. Explicit other brands retain their existing corners.
+    // Text stays separate and native so it remains editable after import.
     const categoryBadge=(y:number,style:'A'|'C')=>{
       if(!document.category)return;
-      const height=style==='A'?60:50,fontSize=style==='A'?36:30,radius=style==='A'?10:8;
+      const height=style==='A'?60:50,fontSize=style==='A'?36:30;
       const width=Math.min(888,Math.max(style==='A'?160:130,Math.ceil(loadReadingFont('Noto Sans KR',700).measure(document.category,fontSize))+52));
-      rect('cover-category-badge',96,y,width,height,accent,false,false,100000,radius);
+      const radius=standardClosing?highScoopBadgeGeometry(width,height).radius:style==='A'?10:8;
+      rect('cover-category-badge',96,y,width,height,accent,false,standardClosing,100000,radius);
       text('cover-category',document.category,122,y,width-52,height,fontSize,24,'#181818',true,undefined,'ctr',1.2,'middle');
     };
     // Metadata stays distinct from editorial copy. Every supplied note/source is
