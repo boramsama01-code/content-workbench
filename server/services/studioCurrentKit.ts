@@ -31,7 +31,7 @@ export function createStudioCurrentRenderer(content: StudioContent, version: num
   const page = async (index: number) => {
     if (!Number.isInteger(index) || index < 0 || index >= pageCount) throw new HttpError(400, '내보낼 페이지를 확인하세요.');
     const photos: NotionCanvaPhoto[] = [];
-    for (const id of new Set(document.pages.map(page => page.imageId).filter(Boolean))) {
+    for (const id of new Set([document.pages[index]?.imageId].filter(Boolean))) {
       const bytes = images.get(Number(id));
       if (!bytes) throw new HttpError(400, '이 콘텐츠의 그림을 찾을 수 없습니다.');
       photos.push({id: id!, bytes: await sharp(bytes, {limitInputPixels: 40_000_000}).rotate().png().toBuffer(), mimeType: 'image/png'});
