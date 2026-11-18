@@ -93,33 +93,53 @@ export async function renderStudioOutput(db: DB, cardId: number, requestedVersio
   const accent = /^#[a-f\d]{6}$/i.test(channel?.accentColor ?? "") ? channel!.accentColor : "#285f6a";
   const brand = channel ? channelBrandName(channel) : "우주펭귄상회";
   const images = new Map<number, Buffer>();
-  if (content.finishedDeck) {
-    for (const p of content.finishedDeck.pages) {
-      const [image] = await db.select().from(studioImages).where(and(eq(studioImages.id, p.imageId), eq(studioImages.cardId, cardId)));
-      if (!image) throw new HttpError(400, "이 콘텐츠의 완성 이미지를 찾을 수 없습니다.");
-      images.set(p.imageId, image.bytes);
+  // Keep bytes request-local and load only the assets consumed by the requested page.
+  // A ZIP reuses this map across pages, while independent previews recheck the card version.
+  const pending = new Map<number, Promise<void>>();
+  const load = (id: number) => {
+    if (images.has(id)) return Promise.resolve();
+    const existing = pending.get(id);
+    if (existing) return existing;
+    const request = (async () => {
+      if (content.experience && !content.finishedDeck) {
+        const [media] = await db.select({ preview: studioMedia.preview }).from(studioMedia)
+          .where(and(eq(studioMedia.id, id), eq(studioMedia.cardId, cardId)));
+        if (!media) throw new HttpError(400, "이 작업에 속한 촬영 자료를 찾을 수 없습니다.");
+        if (media.preview) images.set(id, media.preview);
+      } else {
+        const [image] = await db.select({ bytes: studioImages.bytes }).from(studioImages)
+          .where(and(eq(studioImages.id, id), eq(studioImages.cardId, cardId)));
+        if (!image) throw new HttpError(400, content.finishedDeck ? "이 콘텐츠의 완성 이미지를 찾을 수 없습니다." : "이 콘텐츠의 그림을 찾을 수 없습니다. 그림을 다시 확인해 주세요.");
+        images.set(id, image.bytes);
+      }
+    })();
+    pending.set(id, request);
+    return request;
+  };
+  return { version: row.version, content, pageCount: check.pageCount, page: async (index: number) => {
+    if (!Number.isInteger(index) || index < 0 || index >= check.pageCount) throw new HttpError(400, "내보낼 페이지를 확인하세요.");
+    for (const id of studioPageImageIds(content, index)) await load(id);
+    if (content.finishedDeck) {
+      return sharp(images.get(content.finishedDeck.pages[index].imageId)!).rotate()
+        .resize(1080, 1350, { fit: "contain", background: "#ffffff" }).flatten({ background: "#ffffff" }).png().toBuffer();
     }
-    return { version: row.version, content, pageCount: content.finishedDeck.pages.length, page: async (index: number) => {
-      const p = content.finishedDeck!.pages[index];
-      if (!Number.isInteger(index) || !p) throw new HttpError(400, "페이지를 확인하세요.");
-      return sharp(images.get(p.imageId)!).rotate().resize(1080, 1350, { fit: "contain", background: "#ffffff" }).flatten({ background: "#ffffff" }).png().toBuffer();
-    } };
-  }
+    return createStudioRenderer(content, row.version, brand, accent, images, channel?.categories).page(index);
+  } };
+}
+
+/** Asset dependencies of a single output page. No DB or rendering work. */
+export function studioPageImageIds(content: StudioContent, index: number): number[] {
+  if (content.finishedDeck) return [content.finishedDeck.pages[index].imageId];
+  const last = studioPageCount(content) - 1;
+  if ((content.experience || content.format !== "웹툰") && isHighscoopChannel(content.channel) && index === last) return [];
   if (content.experience) {
-    const ids=[...new Set([content.experience.coverId,...content.experience.pages.map(p=>p.mediaId)].filter((id):id is number=>!!id))];
-    for(const id of ids){const [media]=await db.select({preview:studioMedia.preview}).from(studioMedia).where(and(eq(studioMedia.id,id),eq(studioMedia.cardId,cardId)));
-      if(!media)throw new HttpError(400,"이 작업에 속한 촬영 자료를 찾을 수 없습니다.");
-      if(media.preview)images.set(id,media.preview);
-    }
-    return createExperienceRenderer(content,row.version,brand,accent,images);
+    const id = index === 0 ? content.experience.coverId : content.experience.pages[index - 1]?.mediaId;
+    return id ? [id] : [];
   }
-  for (const panel of content.panels) {
-    if (!panel.imageId || images.has(panel.imageId)) continue;
-    const [image] = await db.select().from(studioImages).where(and(eq(studioImages.id, panel.imageId), eq(studioImages.cardId, cardId)));
-    if (!image) throw new HttpError(400, "이 콘텐츠의 그림을 찾을 수 없습니다. 그림을 다시 확인해 주세요.");
-    images.set(panel.imageId, image.bytes);
-  }
-  return createStudioRenderer(content, row.version, brand, accent, images, channel?.categories);
+  if (content.format === "웹툰") return [...new Set(content.panels.flatMap(p => p.imageId ? [p.imageId] : []))];
+  const photoCover = isCurrentEditorialTemplate(content.exportDesign) || content.exportDesign.startsWith("set:");
+  const panel = index === 0 ? (photoCover ? content.panels[0] : undefined) : content.panels[index - 1];
+  return panel?.imageId ? [panel.imageId] : [];
 }
 
 /** Pure renderer shared by the API and visual checks; performs no network or AI calls. */
