@@ -1,3 +1,4 @@
+import { recordStudioBlobRead } from "../services/studioReadTelemetry";
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { canvaStudioSyncBindSchema, canvaStudioSyncCheckSchema } from "../../shared/canvaStudioSync";
@@ -14,7 +15,8 @@ canvaStudioSyncRoutes.post("/studio/cards/:id/canva-sync/check", ah(async (req, 
   const input = parse(canvaStudioSyncCheckSchema, req.body); res.json(await checkCanvaStudioSync(getDb(), intParam(req.params.id), input.version));
 }));
 canvaStudioSyncRoutes.get("/studio/cards/:id/canva-sync/proof/:proofId", ah(async (req, res) => {
-  const [proof] = await getDb().select().from(studioImages).where(and(eq(studioImages.id, intParam(req.params.proofId)), eq(studioImages.cardId, intParam(req.params.id)), eq(studioImages.model, "canva-pdf-proof"), eq(studioImages.mimeType, "application/pdf")));
+  const [proof] = await getDb().select({ bytes: studioImages.bytes }).from(studioImages).where(and(eq(studioImages.id, intParam(req.params.proofId)), eq(studioImages.cardId, intParam(req.params.id)), eq(studioImages.model, "canva-pdf-proof"), eq(studioImages.mimeType, "application/pdf")));
+  recordStudioBlobRead("canva-proof", proof?.bytes);
   if (!proof) throw new HttpError(404, "이 콘텐츠의 Canva PDF 기록을 찾을 수 없습니다.");
   res.type("application/pdf").set("Cache-Control", "private, no-store").set("X-Content-Type-Options", "nosniff").send(proof.bytes);
 }));
