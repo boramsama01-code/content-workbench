@@ -1,3 +1,4 @@
+import { recordStudioBlobRead, type StudioReadRoute } from "./studioReadTelemetry";
 import { altTextError, altTextFile, studioAltTexts } from "../../shared/altText";
 import { checkExperienceExport, createExperienceRenderer } from "./experienceExport";
 import { channelBrandName } from "../../shared/branding";
@@ -82,7 +83,7 @@ function lightText(hex: string) {
   const linear = [value >> 16, (value >> 8) & 255, value & 255].map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
   return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722 < .179;
 }
-export async function renderStudioOutput(db: DB, cardId: number, requestedVersion?: number) {
+export async function renderStudioOutput(db: DB, cardId: number, requestedVersion?: number, readRoute: StudioReadRoute = "export-other") {
   const [row] = await db.select().from(studioCards).where(eq(studioCards.id, cardId));
   if (!row) throw new HttpError(404, "콘텐츠를 찾을 수 없습니다.");
   if (requestedVersion !== undefined && row.version !== requestedVersion) throw new HttpError(409, "다른 곳에서 콘텐츠가 변경됐습니다. 최신 내용을 확인한 뒤 다시 내려받으세요.");
@@ -104,11 +105,13 @@ export async function renderStudioOutput(db: DB, cardId: number, requestedVersio
       if (content.experience && !content.finishedDeck) {
         const [media] = await db.select({ preview: studioMedia.preview }).from(studioMedia)
           .where(and(eq(studioMedia.id, id), eq(studioMedia.cardId, cardId)));
+        recordStudioBlobRead(readRoute, media?.preview);
         if (!media) throw new HttpError(400, "이 작업에 속한 촬영 자료를 찾을 수 없습니다.");
         if (media.preview) images.set(id, media.preview);
       } else {
         const [image] = await db.select({ bytes: studioImages.bytes }).from(studioImages)
           .where(and(eq(studioImages.id, id), eq(studioImages.cardId, cardId)));
+        recordStudioBlobRead(readRoute, image?.bytes);
         if (!image) throw new HttpError(400, content.finishedDeck ? "이 콘텐츠의 완성 이미지를 찾을 수 없습니다." : "이 콘텐츠의 그림을 찾을 수 없습니다. 그림을 다시 확인해 주세요.");
         images.set(id, image.bytes);
       }
@@ -210,7 +213,7 @@ export function createStudioRenderer(content: StudioContent, version: number, br
   return { version, content, pageCount: check.pageCount, page };
 }
 export async function exportStudioZip(db: DB, id: number, version?: number) {
-  const output = await renderStudioOutput(db, id, version);
+  const output = await renderStudioOutput(db, id, version, "export-zip");
   if (output.content.format !== "카드뉴스") throw new HttpError(400, "카드뉴스 형식을 선택한 뒤 ZIP으로 내려받으세요.");
   const files: Array<{ name: string; bytes: Buffer }> = [];
   for (let index = 0; index < output.pageCount; index++) files.push({ name: `page-${String(index + 1).padStart(2, "0")}.png`, bytes: await output.page(index) });

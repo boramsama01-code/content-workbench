@@ -1,3 +1,5 @@
+import { readStudioMedia } from "../services/studioMediaRead";
+import { recordStudioBlobRead } from "../services/studioReadTelemetry";
 import { appendFinishedImage } from "../services/studioFinishedDeck";
 import { prepareStudioPublication, approveStudioPublication, studioPublishStatus } from "../services/studioPublish";
 import { checkInstagramConnection, connectInstagram, instagramAccounts } from "../services/instagramConnection";
@@ -9,7 +11,7 @@ import { count, desc, eq, isNull, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../db";
 import { actorOf } from "../auth";
-import { channels, jobs, studioCards, studioImages, studioRevisions, studioMedia } from "../../shared/schema";
+import { channels, jobs, studioCards, studioImages, studioRevisions } from "../../shared/schema";
 import { studioCharacters, studioContentSchema, studioCreateSchema, studioGenerationSchema, studioPatchSchema } from "../../shared/studio";
 import { ah, HttpError, intParam, loadChannel, parse } from "./util";
 import { channelAiCapacity } from "../services/aiCapacity";
@@ -116,9 +118,9 @@ studioRoutes.post("/studio/cards/:id/media/:mediaId/preview",raw({type:["image/*
  res.json(await saveVideoPreview(getDb(),intParam(req.params.id),intParam(req.params.mediaId),version,req.body,seconds,actorOf(req)));
 }));
 for(const preview of [false,true]) studioRoutes.get(`/studio/media/:id${preview?"/preview":""}`,ah(async(req,res)=>{
- const [media]=await getDb().select().from(studioMedia).where(eq(studioMedia.id,intParam(req.params.id)));
+ const media=await readStudioMedia(getDb(),intParam(req.params.id),preview);
  if(!media)throw new HttpError(404,"촬영 자료를 찾을 수 없습니다.");
- const bytes=preview?media.preview:media.bytes;
+ const bytes=media.bytes;
  if(!bytes)throw new HttpError(404,"영상 대표 장면을 먼저 추가해 주세요.");
  res.set("Cache-Control","private, no-store").set("X-Content-Type-Options","nosniff").type(preview?"image/jpeg":media.mimeType);
  if(req.query.download==="1")res.set("Content-Disposition",`attachment; filename="media-${media.id}.${preview||media.kind==="photo"?"jpg":media.mimeType==="video/webm"?"webm":media.mimeType==="video/quicktime"?"mov":"mp4"}"`);
@@ -159,7 +161,7 @@ studioRoutes.get("/studio/cards/:id", ah(async (req, res) => {
 studioRoutes.get("/studio/cards/:id/export.png", ah(async (req, res) => {
   const id = intParam(req.params.id);
   const version = req.query.version === undefined ? undefined : parse(z.coerce.number().int().positive(), req.query.version);
-  const exported = await renderStudioOutput(getDb(), id, version);
+  const exported = await renderStudioOutput(getDb(), id, version, "export-png");
   if (exported.content.format === "카드뉴스" && req.query.page === undefined) throw new HttpError(400, "카드뉴스는 ZIP으로 내려받거나 미리보기 페이지를 선택하세요.");
   const page = req.query.page === undefined ? 0 : parse(z.coerce.number().int().min(0).max(19), req.query.page);
   res.type("image/png").set("Content-Disposition", `${req.query.preview === "1" ? "inline" : "attachment"}; filename="studio-${id}-v${exported.version}.png"`).send(await exported.page(page));
@@ -209,7 +211,8 @@ studioRoutes.get("/studio/jobs/:id", ah(async (req, res) => {
   res.json(studioJobDto(job));
 }));
 studioRoutes.get("/studio/images/:id", ah(async (req, res) => {
-  const [image] = await getDb().select().from(studioImages).where(eq(studioImages.id, intParam(req.params.id)));
+  const [image] = await getDb().select({ mimeType: studioImages.mimeType, bytes: studioImages.bytes }).from(studioImages).where(eq(studioImages.id, intParam(req.params.id)));
+  recordStudioBlobRead("image", image?.bytes);
   if (!image) throw new HttpError(404, "이미지를 찾을 수 없습니다.");
   res.type(image.mimeType).set("X-Content-Type-Options", "nosniff").send(image.bytes);
 }));

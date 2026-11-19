@@ -317,7 +317,7 @@ export async function importStudioBoard(db: DB, input: z.infer<typeof studioImpo
 
 /** Same saved images plus editable dialogue, rendered locally without another paid AI call. */
 export async function exportStudioComic(db: DB, cardId: number) {
-  const output = await renderStudioOutput(db, cardId);
+  const output = await renderStudioOutput(db, cardId, undefined, "comic-export");
   if (output.content.format !== "웹툰") throw new HttpError(400, "웹툰 형식을 선택한 뒤 PNG로 내려받으세요.");
   return { bytes: await output.page(0), version: output.version };
 }

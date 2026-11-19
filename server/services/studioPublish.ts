@@ -61,7 +61,7 @@ export async function prepareStudioPublication(db: DB, cardId: number, version: 
   const captionErrors = validateCaptions({ instagram: content.caption, telegram: "" });
   if (captionErrors.length) throw new HttpError(400, captionErrors.join(" "));
   if (original.importedMeta?.publishedVersion === version) return previewDto(db, original);
-  const output = await renderStudioOutput(db, cardId, version);
+  const output = await renderStudioOutput(db, cardId, version, "publication-prepare");
   const pages: Buffer[] = [];
   for (let i = 0; i < output.pageCount; i++) pages.push(await sharp(await output.page(i)).flatten({ background: "#ffffff" }).jpeg({ quality: 94, chromaSubsampling: "4:4:4" }).toBuffer());
   const altTexts = studioAltTexts(content);
